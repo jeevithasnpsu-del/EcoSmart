@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>EcoSmart</title>
-  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 
@@ -614,11 +614,7 @@ const [alertFilter, setAlertFilter] = useState("all");
   const addAlert = useCallback(async (type, msg) => {
     const a = { id:Date.now(), type, msg, time:"just now" };
     setAlerts(prev => [a, ...prev].slice(0,12));
-    if (fb && user) {
-      try {
-        await fb.addDoc(fb.collection(fb.db,"alerts"), { type, msg, createdAt:fb.serverTimestamp(), userId:user.uid });
-      } catch {}
-    }
+    
   }, [fb, user]);
 
   // ── Save points to Firestore ──
@@ -1373,12 +1369,21 @@ const ThrowWaste = () => {
 
   // ── AI Classifier ──
  const AIClassifier = () => {
+  const [draftInput, setDraftInput] = useState(aiInput);
+
   const resultColor =
     aiResult?.category === "wet" ? neon.green :
     aiResult?.category === "dry" ? neon.yellow :
     aiResult?.category === "hazardous" ? neon.red :
     aiResult?.category === "e-waste" ? neon.purple :
     neon.cyan;
+
+  const runClassify = (text) => {
+    const value = text.trim();
+    if (!value) return;
+    setAiInput(value);
+    classifyWaste(value);
+  };
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
@@ -1389,26 +1394,25 @@ const ThrowWaste = () => {
         </div>
 
         <div style={S.cardBody}>
-          <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:16 }}>
+          <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap" }}>
             <input
-              style={S.input}
+              style={{ ...S.input, flex:1, minWidth:220 }}
               placeholder="e.g. banana peel, old mobile phone, battery..."
-              value={aiInput}
-              onChange={e => setAiInput(e.target.value)}
+              value={draftInput}
+              onChange={e => setDraftInput(e.target.value)}
               onKeyDown={e => {
-                if (e.key === "Enter") classifyWaste(aiInput);
+                if (e.key === "Enter") runClassify(draftInput);
               }}
             />
 
             <button
-             style={{ ...S.btn(neon.green), whiteSpace:"nowrap", flexShrink:0 }}
-              onClick={() => classifyWaste(aiInput)}
+              style={{ ...S.btn(neon.green), whiteSpace:"nowrap", opacity:aiLoading ? 0.6 : 1 }}
+              onClick={() => runClassify(draftInput)}
               disabled={aiLoading}
             >
               {aiLoading ? "Analyzing..." : "Classify →"}
             </button>
           </div>
-
           {aiResult && !aiResult.error && (
             <div style={{
               background:`${resultColor}0d`,
@@ -1495,8 +1499,10 @@ const ThrowWaste = () => {
           ].map(item => (
             <button
               key={item}
-              onClick={() => classifyWaste(item)}
-              style={{
+onClick={() => {
+  setDraftInput(item);
+  runClassify(item);
+}}              style={{
                 padding:"6px 14px",
                 fontSize:11,
                 background:"rgba(0,255,136,0.06)",
