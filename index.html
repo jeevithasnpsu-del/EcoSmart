@@ -1490,46 +1490,114 @@ const ThrowWaste = () => {
         <div style={S.cardBody}>
           <div style={{ display:"flex", flexDirection:"column", gap:14, marginBottom:16 }}>
             {/* Visual upload box */}
-            <div 
-              onClick={triggerFileSelect}
-              style={{
-                border: "1px dashed rgba(0,255,136,0.3)",
-                borderRadius: 12,
-                padding: "26px 16px",
-                textAlign: "center",
-                cursor: "pointer",
-                background: "rgba(0,255,136,0.02)",
-                transition: "all 0.3s ease",
-              }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = neon.green}
-              onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(0,255,136,0.3)"}
-            >
-              <input 
-  type="file" 
-  ref={fileInputRef} 
-  onChange={handleFileChange} 
-  accept="image/*"
-  capture="environment"
-  style={{ display: "none" }} 
-/>
-              
-              {previewUrl ? (
-                <div>
-                  <img 
-                    src={previewUrl} 
-                    alt="Waste preview" 
-                    style={{ maxHeight: 160, borderRadius: 8, border: `1px solid ${neon.green}`, marginBottom: 10 }} 
-                  />
-                  <div style={{ fontSize: 11, color: neon.cyan }}>📸 Click to change waste image</div>
-                </div>
-              ) : (
-                <div>
-                  <div style={{ fontSize: 32, marginBottom: 8 }}>📸</div>
-                  <div style={{ fontSize: 13, color: "#e8fff5", fontWeight: "bold" }}>Upload Waste Image or Capture (Camera)</div>
-                  <div style={{ fontSize: 10, color: "#6b8f80", marginTop: 4 }}>Passes 224x224 RGB image to TensorFlow model</div>
-                </div>
-              )}
-            </div>
+            {/* === UPLOAD / CAMERA SECTION === */}
+{(() => {
+  const videoRef = React.useRef(null);
+  const canvasRef = React.useRef(null);
+  const [streaming, setStreaming] = React.useState(false);
+  const isMobile = /Mobi|Android/i.test(navigator.userAgent);
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: isMobile ? "environment" : "user" }
+      });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+        setStreaming(true);
+      }
+    } catch (e) {
+      showToast("Camera access denied", "error");
+    }
+  };
+
+  const stopCamera = () => {
+    if (videoRef.current?.srcObject) {
+      videoRef.current.srcObject.getTracks().forEach(t => t.stop());
+      videoRef.current.srcObject = null;
+    }
+    setStreaming(false);
+  };
+
+  const captureFrame = () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      const file = new File([blob], "capture.jpg", { type: "image/jpeg" });
+      const reader = new FileReader();
+      reader.onloadend = () => setPreviewUrl(reader.result);
+      reader.readAsDataURL(file);
+      classifyWaste(file);
+      stopCamera();
+    }, "image/jpeg", 0.9);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {/* Hidden inputs — NO capture attr so both gallery & file work */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept="image/*"
+        style={{ display: "none" }}
+      />
+
+      {streaming ? (
+        /* Live camera view */
+        <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: `1px solid ${neon.green}` }}>
+          <video ref={videoRef} autoPlay playsInline muted
+            style={{ width: "100%", maxHeight: 240, objectFit: "cover", display: "block" }} />
+          <canvas ref={canvasRef} style={{ display: "none" }} />
+          <div style={{ display: "flex", gap: 10, padding: "10px", background: "rgba(0,0,0,0.6)", position: "absolute", bottom: 0, width: "100%", boxSizing: "border-box" }}>
+            <button onClick={captureFrame}
+              style={{ ...S.btn(neon.green), flex: 1, fontSize: 11 }}>
+              📸 Capture
+            </button>
+            <button onClick={stopCamera}
+              style={{ ...S.btn(neon.red, true), flex: 1, fontSize: 11 }}>
+              ✕ Cancel
+            </button>
+          </div>
+        </div>
+      ) : previewUrl ? (
+        /* Preview after capture/upload */
+        <div style={{ textAlign: "center" }}>
+          <img src={previewUrl} alt="Waste preview"
+            style={{ maxHeight: 180, borderRadius: 8, border: `1px solid ${neon.green}`, marginBottom: 8 }} />
+          <div style={{ fontSize: 11, color: neon.cyan }}>📸 Click below to change image</div>
+        </div>
+      ) : (
+        /* Default placeholder */
+        <div style={{ border: "1px dashed rgba(0,255,136,0.3)", borderRadius: 12, padding: "26px 16px", textAlign: "center", background: "rgba(0,255,136,0.02)" }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>📸</div>
+          <div style={{ fontSize: 13, color: "#e8fff5", fontWeight: "bold" }}>Upload or capture waste image</div>
+          <div style={{ fontSize: 10, color: "#6b8f80", marginTop: 4 }}>Passes 224×224 RGB image to TensorFlow model</div>
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={triggerFileSelect}
+          style={{ ...S.btn(neon.cyan, true), flex: 1, fontSize: 11 }}>
+          🖼️ Upload from Gallery
+        </button>
+        {!streaming && (
+          <button onClick={startCamera}
+            style={{ ...S.btn(neon.green, true), flex: 1, fontSize: 11 }}>
+            📷 Open Live Camera
+          </button>
+        )}
+      </div>
+    </div>
+  );
+})()}
 
             {/* Divider */}
             <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
