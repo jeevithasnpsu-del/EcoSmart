@@ -678,25 +678,27 @@ const [alertFilter, setAlertFilter] = useState("all");
   setAiResult(null);
 
   if (isFile) {
-    // 📸 IMAGE CLASSIFICATION (Calls your Flask ML API)
+    // ── INSTANT preview using object URL (no FileReader delay) ──
+    const previewURL = URL.createObjectURL(inputVal);
+    // Dispatch custom event so CameraUploader picks it up instantly
+    window.__ecoPreviewUrl = previewURL;
+
     const formData = new FormData();
     formData.append("file", inputVal);
 
     try {
-      // ⚠️ REPLACE THIS URL WITH YOUR DEPLOYED RENDER BACKEND URL
-      const API_URL = "https://ecosmart-ml-api.onrender.com/predict"; 
-      
+      const API_URL = "https://ecosmart-ml-api.onrender.com/predict";
+
+      // Start fetch immediately — don't wait for anything
       const response = await fetch(API_URL, {
         method: "POST",
         body: formData
       });
 
-      if (!response.ok) {
-        throw new Error(`API error: ${response.statusText}`);
-      }
+      if (!response.ok) throw new Error(`API error: ${response.statusText}`);
 
       const data = await response.json();
-      
+
       setAiResult({
         category: data.color === "dry" ? "dry" : "wet",
         confidence: data.confidence,
@@ -706,8 +708,8 @@ const [alertFilter, setAlertFilter] = useState("all");
         composable: data.color === "wet",
         co2_impact: data.color === "dry" ? "Medium" : "Low",
         disposal_tip: data.tip,
-        eco_fact: data.color === "wet" 
-          ? "Food waste in landfills produces methane. Composting avoids this!" 
+        eco_fact: data.color === "wet"
+          ? "Food waste in landfills produces methane. Composting avoids this!"
           : "Recycling dry items saves precious landfill space and energy."
       });
 
@@ -717,133 +719,107 @@ const [alertFilter, setAlertFilter] = useState("all");
       showToast("Waste classified by ML model! 📸");
 
     } catch (error) {
-      console.error("ML API Connection failed, running offline fallback:", error);
-      showToast("Backend offline, running fallback", "error");
-      
-      // Offline fallback dummy response based on file name keywords
+      console.error("ML API offline, using fallback:", error);
+
+      // ── Smart fallback using actual image content via canvas ──
+      const img = new Image();
+      img.src = previewURL;
+      await new Promise(res => { img.onload = res; img.onerror = res; });
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 4; canvas.height = 4;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, 4, 4);
+      const px = ctx.getImageData(0, 0, 4, 4).data;
+      // Average green channel — organic/wet items tend greener
+      let avgR = 0, avgG = 0, avgB = 0;
+      for (let i = 0; i < px.length; i += 4) {
+        avgR += px[i]; avgG += px[i+1]; avgB += px[i+2];
+      }
+      const n = px.length / 4;
+      avgR /= n; avgG /= n; avgB /= n;
+
+      // Also check filename
       const fileName = inputVal.name.toLowerCase();
+      const wetKeywords = ["banana","food","apple","waste","vegetable","leaf","fruit","organic","peel","egg"];
+      const hazKeywords = ["battery","medicine","bulb","chemical","paint","sanitizer"];
+      const eKeywords   = ["laptop","mobile","phone","charger","earphone","keyboard"];
+
       let estCategory = "dry";
       let estTip = "Please dispose in the BLUE bin. Recyclable items like plastic, paper, cardboard.";
       let estPts = 10;
+      let estConf = 72;
 
-      if (fileName.includes("banana") || fileName.includes("food") || fileName.includes("apple") || fileName.includes("waste")) {
-        estCategory = "wet";
-        estTip = "Please dispose in the GREEN bin. Biodegradable items like food scraps, peels.";
-        estPts = 5;
+      if (hazKeywords.some(k => fileName.includes(k))) {
+        estCategory = "hazardous"; estTip = "Dispose at a hazardous waste collection center."; estPts = 20; estConf = 85;
+      } else if (eKeywords.some(k => fileName.includes(k))) {
+        estCategory = "e-waste"; estTip = "Send to a certified e-waste recycler."; estPts = 25; estConf = 88;
+      } else if (wetKeywords.some(k => fileName.includes(k)) || (avgG > avgR + 10 && avgG > avgB + 10)) {
+        estCategory = "wet"; estTip = "Please dispose in the GREEN bin. Biodegradable items like food scraps, peels."; estPts = 5; estConf = 68;
       }
 
       setAiResult({
         category: estCategory,
-        confidence: 65,
-        bin_color: estCategory === "dry" ? "Blue" : "Green",
+        confidence: estConf,
+        bin_color: estCategory === "dry" ? "Blue" : estCategory === "wet" ? "Green" : estCategory === "hazardous" ? "Red" : "Purple",
         points: estPts,
-        disposal_tip: `[Offline Fallback] ${estTip}`,
-        eco_fact: "Start your Python Flask backend server and deploy it to get accurate TensorFlow predictions."
+        recyclable: estCategory === "dry" || estCategory === "e-waste",
+        composable: estCategory === "wet",
+        co2_impact: estCategory === "hazardous" || estCategory === "e-waste" ? "High" : estCategory === "wet" ? "Low" : "Medium",
+        disposal_tip: `[Offline] ${estTip}`,
+        eco_fact: "Deploy your Flask backend on Render to get accurate TensorFlow predictions."
       });
+
+      const newPts = points + estPts;
+      setPoints(newPts);
+      if (fb && user) savePoints(newPts);
+      showToast("Backend offline — smart fallback used", "error");
+
     } finally {
       setAiLoading(false);
+      // Free memory
+      URL.revokeObjectURL(previewURL);
     }
 
   } else {
-    // 📝 TEXT CLASSIFICATION (Local string matching fallback)
+    // ── TEXT classification — instant, no timeout needed ──
     setAiInput(inputVal);
-    setTimeout(() => {
-      const item = inputVal.toLowerCase();
+    const item = inputVal.toLowerCase();
 
-      let result = {
-        category:"dry",
-        confidence:90,
-        bin_color:"Blue",
-        points:10,
-        recyclable:true,
-        composable:false,
-        co2_impact:"Medium",
-        disposal_tip:"Dispose in dry waste bin.",
-        eco_fact:"Recycling helps reduce landfill waste."
-      };
+    let result = {
+      category: "dry", confidence: 90, bin_color: "Blue", points: 10,
+      recyclable: true, composable: false, co2_impact: "Medium",
+      disposal_tip: "Dispose in dry waste bin.",
+      eco_fact: "Recycling helps reduce landfill waste."
+    };
 
-      if (
-        item.includes("food") ||
-        item.includes("vegetable") ||
-        item.includes("fruit") ||
-        item.includes("leaves") ||
-        item.includes("banana") ||
-        item.includes("peel") ||
-        item.includes("apple") ||
-        item.includes("egg") ||
-        item.includes("tea") ||
-        item.includes("coffee") ||
-        item.includes("rice") ||
-        item.includes("bread") ||
-        item.includes("oil")
-      ) {
-        result = {
-          category:"wet",
-          confidence:96,
-          bin_color:"Green",
-          points:5,
-          recyclable:false,
-          composable:true,
-          co2_impact:"Low",
-          disposal_tip:"Dispose in wet waste bin or compost.",
-          eco_fact:"Fruit peels and food scraps are compostable organic waste."
-        };
-      }
+    if (["food","vegetable","fruit","leaves","banana","peel","apple","egg","tea","coffee","rice","bread","oil"].some(k => item.includes(k))) {
+      result = { category:"wet", confidence:96, bin_color:"Green", points:5, recyclable:false, composable:true, co2_impact:"Low",
+        disposal_tip:"Dispose in wet waste bin or compost.",
+        eco_fact:"Fruit peels and food scraps are compostable organic waste." };
+    }
 
-      if (
-        item.includes("battery") ||
-        item.includes("medicine") ||
-        item.includes("bulb") ||
-        item.includes("chemical") ||
-        item.includes("paint") ||
-        item.includes("sanitizer")
-      ) {
-        result = {
-          category:"hazardous",
-          confidence:98,
-          bin_color:"Red",
-          points:20,
-          recyclable:false,
-          composable:false,
-          co2_impact:"High",
-          disposal_tip:"Dispose at a hazardous waste collection center.",
-          eco_fact:"Hazardous waste can pollute groundwater if dumped improperly."
-        };
-      }
+    if (["battery","medicine","bulb","chemical","paint","sanitizer"].some(k => item.includes(k))) {
+      result = { category:"hazardous", confidence:98, bin_color:"Red", points:20, recyclable:false, composable:false, co2_impact:"High",
+        disposal_tip:"Dispose at a hazardous waste collection center.",
+        eco_fact:"Hazardous waste can pollute groundwater if dumped improperly." };
+    }
 
-      if (
-        item.includes("laptop") ||
-        item.includes("mobile") ||
-        item.includes("phone") ||
-        item.includes("charger") ||
-        item.includes("earphone") ||
-        item.includes("keyboard")
-      ) {
-        result = {
-          category:"e-waste",
-          confidence:97,
-          bin_color:"Purple",
-          points:25,
-          recyclable:true,
-          composable:false,
-          co2_impact:"High",
-          disposal_tip:"Send to a certified e-waste recycler.",
-          eco_fact:"E-waste contains recoverable metals and must not go to regular bins."
-        };
-      }
+    if (["laptop","mobile","phone","charger","earphone","keyboard"].some(k => item.includes(k))) {
+      result = { category:"e-waste", confidence:97, bin_color:"Purple", points:25, recyclable:true, composable:false, co2_impact:"High",
+        disposal_tip:"Send to a certified e-waste recycler.",
+        eco_fact:"E-waste contains recoverable metals and must not go to regular bins." };
+    }
 
-      setAiResult(result);
-
-      const newPts = points + result.points;
-      setPoints(newPts);
-      if (fb && user) savePoints(newPts);
-
-      showToast("Waste classified successfully!");
-      setAiLoading(false);
-    }, 500);
+    // Instant — no setTimeout
+    setAiResult(result);
+    const newPts = points + result.points;
+    setPoints(newPts);
+    if (fb && user) savePoints(newPts);
+    showToast("Waste classified!");
+    setAiLoading(false);
   }
 };
-
 
   // ── Route Optimizer ──
   const optimizeRoute = async () => {
@@ -1501,15 +1477,13 @@ function CameraUploader({ onFile, showToast, S, neon }) {
   };
 
   const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    // Show preview IMMEDIATELY using object URL (no FileReader delay)
-    const url = URL.createObjectURL(file);
-    setPreviewUrl(url);
-    onFile(file);
-    e.target.value = ""; // allow re-selecting same file
-  };
-
+  const file = e.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  setPreviewUrl(url);
+  onFile(file);
+  e.target.value = "";
+};
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <input
@@ -1605,12 +1579,8 @@ function CameraUploader({ onFile, showToast, S, neon }) {
           style={{ ...S.btn(neon.cyan, true), flex: 1, fontSize: 11 }}>
           🖼️ Upload from Gallery
         </button>
-        {!streaming && (
-          <button onClick={startCamera}
-            style={{ ...S.btn(neon.green, true), flex: 1, fontSize: 11 }}>
-            📷 Live Camera
-          </button>
-        )}
+        
+        
       </div>
     </div>
   );
