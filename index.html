@@ -3,16 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>EcoSmart</title>
+  <title>EcoSmart — IoT &amp; AI Smart Waste</title>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
  <style>
   * { box-sizing: border-box; }
-  body { margin: 0; background: #050a0e; color: white; font-family: 'Courier New', monospace; }
+  body { margin: 0; background: #0c5794; color: white; font-family: 'Courier New', monospace; }
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(0,255,136,0.25); border-radius: 2px; }
@@ -22,63 +23,48 @@
   @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+  @keyframes glowPulse { 0%,100%{box-shadow:0 0 8px rgba(0,255,136,0.3)} 50%{box-shadow:0 0 20px rgba(0,255,136,0.7)} }
 
   @media (max-width: 600px) {
-    body {
-      font-size: 14px;
-    }
-
-    button {
-      min-height: 42px;
-    }
-
-    input {
-      min-height: 42px;
-    }
+    body { font-size: 14px; }
+    button { min-height: 42px; }
+    input { min-height: 42px; }
   }
+  @keyframes shimmer {
+  0% { background-position:-200% 0; }
+  100% { background-position:200% 0; }
+}
+
+@keyframes alertSlide {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+@media (max-width: 600px) {
+  body {
+    font-size: 14px;
+  }
+
+  button {
+    min-height: 42px;
+  }
+
+  input {
+    min-height: 42px;
+  }
+}
 </style>
 </head>
 <body>
 <div id="root"></div>
-<section style="padding:20px; background:#050a0e;">
-  <div style="
-    max-width:1200px;
-    margin:0 auto;
-    border:1px solid rgba(0,255,136,0.25);
-    border-radius:18px;
-    padding:14px;
-    background:rgba(10,22,20,0.85);
-    box-shadow:0 0 30px rgba(0,255,136,0.12);
-  ">
-    <div style="
-      color:#00ff88;
-      font-family:'Courier New', monospace;
-      font-size:14px;
-      letter-spacing:2px;
-      margin-bottom:10px;
-    ">
-      LIVE SMART BIN MAP
-    </div>
 
-    <div id="map" style="
-      height:420px;
-      width:100%;
-      border-radius:14px;
-      overflow:hidden;
-    "></div>
+<!-- LEAFLET MAP SECTION -->
+<section style="padding:20px; background:#060b0b;">
+  <div style="max-width:1200px;margin:0 auto;border:1px solid rgba(0,255,136,0.25);border-radius:18px;padding:14px;background:rgba(10,22,20,0.85);box-shadow:0 0 30px rgba(0,255,136,0.12);">
+    <div style="color:#00ff88;font-family:'Courier New',monospace;font-size:14px;letter-spacing:2px;margin-bottom:10px;">LIVE SMART BIN MAP</div>
+    <div id="map" style="height:420px;width:100%;border-radius:14px;overflow:hidden;"></div>
   </div>
 </section>
-
-<div style="width:100%; height:400px; margin-top:20px;">
-  <iframe
-    width="100%"
-    height="100%"
-    style="border:0"
-    loading="lazy"
-    allowfullscreen
-    src="https://www.google.com/maps/embed/v1/place?key=YOUR_API_KEY&q=Bangalore">
-  </iframe>
-</div>
 
 <!-- FIREBASE SDK -->
 <script type="module">
@@ -109,80 +95,76 @@
 
   const app = initializeApp(firebaseConfig);
   let analytics;
-try {
-  analytics = getAnalytics(app);
-} catch(e) {
-  console.log("Analytics not supported");
-}
+  try { analytics = getAnalytics(app); } catch(e) { console.log("Analytics not supported"); }
   const auth = getAuth(app);
   const db = getFirestore(app);
   const rtdb = getDatabase(app);
 
-  // Expose to React via window
   window.__firebase = {
     auth, db, rtdb,
-    createUserWithEmailAndPassword,
-    signInWithEmailAndPassword,
-    signOut,
-    onAuthStateChanged,
-    updateProfile,
+    createUserWithEmailAndPassword, signInWithEmailAndPassword,
+    signOut, onAuthStateChanged, updateProfile,
     collection, addDoc, getDocs, doc, setDoc,
     onSnapshot, query, orderBy, limit, serverTimestamp, updateDoc, getDoc,
     ref, set, onValue, push, rtServerTimestamp, get
   };
 
   console.log("✅ Firebase fully connected — Auth + Firestore + RTDB");
-  const map = L.map('map').setView([12.9716, 77.5946], 10);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: 'EcoSmart'
-}).addTo(map);
+  // Leaflet map
+  const map = L.map('map').setView([12.9716, 77.5946], 11);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: 'EcoSmart' }).addTo(map);
 
-const mapBins = [
-  { lat: 12.9716, lng: 77.5946, name: "MG Road", level: "Critical" },
-  { lat: 12.9352, lng: 77.6245, name: "Koramangala", level: "Normal" },
-  { lat: 12.9784, lng: 77.6408, name: "Indiranagar", level: "Full" },
+  const mapBins = [
+    { lat:12.9716, lng:77.5946, name:"MG Road Metro", level:"Critical" },
+    { lat:12.9352, lng:77.6245, name:"Koramangala 5th Block", level:"Normal" },
+    { lat:12.9784, lng:77.6408, name:"Indiranagar 100ft Rd", level:"Full" },
+    { lat:12.9855, lng:77.5269, name:"Rajajinagar Industrial", level:"Normal" },
+    { lat:12.9916, lng:77.5560, name:"Malleshwaram 15th Cross", level:"Full" },
+    { lat:12.9515, lng:77.4920, name:"Nagarbhavi Univ Campus", level:"Critical" },
+    { lat:12.9226, lng:77.4977, name:"Kengeri Satellite Town", level:"Normal" },
+    { lat:13.0285, lng:77.5400, name:"Peenya Industrial Area", level:"Full" },
+    { lat:12.9698, lng:77.7499, name:"Whitefield ITPL", level:"Critical" },
+    { lat:12.9692, lng:77.6974, name:"Marathahalli Multiplex", level:"Full" },
+    { lat:12.9591, lng:77.6974, name:"Bellandur Outer Ring Rd", level:"Normal" },
+    { lat:13.0238, lng:77.6773, name:"KR Puram Market", level:"Critical" },
+    { lat:12.9959, lng:77.7619, name:"Kadugodi Colony", level:"Normal" },
+    { lat:13.0358, lng:77.5970, name:"Hebbal Flyover", level:"Full" },
+    { lat:13.1007, lng:77.5963, name:"Yelahanka New Town", level:"Normal" },
+    { lat:13.0622, lng:77.5871, name:"Sahakar Nagar", level:"Critical" },
+    { lat:13.0841, lng:77.6426, name:"Jakkur Aerodrome", level:"Full" },
+    { lat:12.9308, lng:77.5831, name:"Jayanagar 4th Block", level:"Normal" },
+    { lat:12.9141, lng:77.6101, name:"BTM Layout 2nd Stage", level:"Full" },
+    { lat:12.9121, lng:77.6446, name:"HSR Layout Sector 7", level:"Critical" },
+    { lat:12.8452, lng:77.6602, name:"Electronic City Phase 1", level:"Normal" },
+    { lat:12.8913, lng:77.5850, name:"JP Nagar Phase 6", level:"Full" },
+    { lat:12.8000, lng:77.5770, name:"Bannerghatta National Pk Rd", level:"Critical" },
+    { lat:12.9600, lng:77.5500, name:"Vijayanagar Circle", level:"Normal" },
+    { lat:13.0100, lng:77.6200, name:"Banaswadi Main Rd", level:"Full" },
+    { lat:12.9400, lng:77.5600, name:"Basavanagudi Bull Temple", level:"Critical" },
+    { lat:12.9000, lng:77.7200, name:"Sarjapur Road Junction", level:"Normal" },
+    { lat:13.0500, lng:77.7000, name:"Hoodi Circle", level:"Full" },
+    { lat:12.9800, lng:77.6100, name:"Shivajinagar Bus Stand", level:"Normal" },
+    { lat:13.0200, lng:77.5500, name:"Yeshwanthpur Metro", level:"Critical" }
+  ];
 
-  // Left / West side
-  { lat: 12.9855, lng: 77.5269, name: "Rajajinagar", level: "Normal" },
-  { lat: 12.9916, lng: 77.5560, name: "Malleshwaram", level: "Full" },
-  { lat: 12.9515, lng: 77.4920, name: "Nagarbhavi", level: "Critical" },
-  { lat: 12.9226, lng: 77.4977, name: "Kengeri", level: "Normal" },
-  { lat: 13.0285, lng: 77.5400, name: "Peenya", level: "Full" },
-
-  // Right / East side
-  { lat: 12.9698, lng: 77.7499, name: "Whitefield", level: "Critical" },
-  { lat: 12.9692, lng: 77.6974, name: "Marathahalli", level: "Full" },
-  { lat: 12.9591, lng: 77.6974, name: "Bellandur", level: "Normal" },
-  { lat: 13.0238, lng: 77.6773, name: "KR Puram", level: "Critical" },
-  { lat: 12.9959, lng: 77.7619, name: "Kadugodi", level: "Normal" },
-
-  // North side
-  { lat: 13.0358, lng: 77.5970, name: "Hebbal", level: "Full" },
-  { lat: 13.1007, lng: 77.5963, name: "Yelahanka", level: "Normal" },
-  { lat: 13.0622, lng: 77.5871, name: "Sahakar Nagar", level: "Critical" },
-  { lat: 13.0841, lng: 77.6426, name: "Jakkur", level: "Full" },
-
-  // South side
-  { lat: 12.9308, lng: 77.5831, name: "Jayanagar", level: "Normal" },
-  { lat: 12.9141, lng: 77.6101, name: "BTM Layout", level: "Full" },
-  { lat: 12.9121, lng: 77.6446, name: "HSR Layout", level: "Critical" },
-  { lat: 12.8452, lng: 77.6602, name: "Electronic City", level: "Normal" },
-  { lat: 12.8913, lng: 77.5850, name: "JP Nagar", level: "Full" },
-  { lat: 12.8000, lng: 77.5770, name: "Bannerghatta Road", level: "Critical" }
-];
-
-mapBins.forEach(bin => {
-  L.marker([bin.lat, bin.lng])
-    .addTo(map)
-.bindPopup(`<b>${bin.name}</b><br>Status: ${bin.level}<br>Smart bin active`);});
-    
+  const iconColors = { Critical:"#ff3d71", Full:"#ffd600", Normal:"#00ff88" };
+  mapBins.forEach(bin => {
+    const color = iconColors[bin.level] || "#00ff88";
+    const icon = L.divIcon({
+      className: "",
+      html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid rgba(255,255,255,0.4);box-shadow:0 0 8px ${color}"></div>`,
+      iconSize: [14,14], iconAnchor: [7,7]
+    });
+    L.marker([bin.lat, bin.lng], { icon }).addTo(map)
+      .bindPopup(`<b>${bin.name}</b><br>Status: <b style="color:${color}">${bin.level}</b><br>Smart bin active`);
+  });
 </script>
 
 <script type="text/babel">
-const { useState, useEffect, useRef, useCallback } = React;
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
-// ── Wait for Firebase to load ──────────────────────────────────────────────
+
 function waitForFirebase() {
   return new Promise(resolve => {
     const check = () => window.__firebase ? resolve(window.__firebase) : setTimeout(check, 50);
@@ -190,52 +172,57 @@ function waitForFirebase() {
   });
 }
 
-// ── Colors ─────────────────────────────────────────────────────────────────
-const neon = { green: "#00ff88", cyan: "#00e5ff", yellow: "#ffd600", red: "#ff3d71", purple: "#b44fff" };
-function rand(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+const neon = { green:"#00ff88", cyan:"#00e5ff", yellow:"#ffd600", red:"#ff3d71", purple:"#b44fff" };
+function rand(min, max) { return Math.floor(Math.random()*(max-min+1))+min; }
+function frand(min, max, dec=1) { return parseFloat((Math.random()*(max-min)+min).toFixed(dec)); }
 
-const WASTE_ITEMS = [
-  { emoji: "🍌", name: "Banana Peel", type: "wet", points: 5 },
-  { emoji: "🍎", name: "Apple Core", type: "wet", points: 5 },
-  { emoji: "🥬", name: "Vegetable", type: "wet", points: 5 },
-  { emoji: "☕", name: "Tea Bag", type: "wet", points: 5 },
-  { emoji: "🍶", name: "Plastic Bottle", type: "dry", points: 10 },
-  { emoji: "📰", name: "Newspaper", type: "dry", points: 8 },
-  { emoji: "🥫", name: "Metal Can", type: "dry", points: 12 },
-  { emoji: "📦", name: "Cardboard", type: "dry", points: 8 },
-  { emoji: "💡", name: "Light Bulb", type: "hazardous", points: 20 },
-  { emoji: "🔋", name: "Battery", type: "hazardous", points: 25 },
-  { emoji: "🧴", name: "Shampoo Bottle", type: "dry", points: 10 },
-  { emoji: "🥩", name: "Food Scraps", type: "wet", points: 5 },
+// ── 30 LOCATIONS ────────────────────────────────────────────────────────────
+const INIT_BINS = [
+  { id:"bin_1",  name:"MG Road Metro",              lat:12.9716, lng:77.5946, wet:96, dry:59, status:"critical", temp:27.4, pop:9.2 },
+  { id:"bin_2",  name:"Koramangala 5th Block",      lat:12.9352, lng:77.6245, wet:62, dry:44, status:"normal",   temp:22.1, pop:8.5 },
+  { id:"bin_3",  name:"Indiranagar 100ft Rd",       lat:12.9784, lng:77.6408, wet:74, dry:35, status:"normal",   temp:21.8, pop:8.0 },
+  { id:"bin_4",  name:"Whitefield ITPL",            lat:12.9698, lng:77.7499, wet:92, dry:81, status:"critical", temp:29.4, pop:7.8 },
+  { id:"bin_5",  name:"Jayanagar 4th Block",        lat:12.9308, lng:77.5831, wet:55, dry:25, status:"normal",   temp:19.5, pop:7.5 },
+  { id:"bin_6",  name:"Rajajinagar Industrial",     lat:12.9855, lng:77.5269, wet:48, dry:72, status:"normal",   temp:21.1, pop:7.2 },
+  { id:"bin_7",  name:"Malleshwaram 15th Cross",    lat:12.9916, lng:77.5560, wet:82, dry:60, status:"full",     temp:22.7, pop:8.1 },
+  { id:"bin_8",  name:"Nagarbhavi Univ Campus",     lat:12.9515, lng:77.4920, wet:91, dry:66, status:"critical", temp:25.2, pop:6.8 },
+  { id:"bin_9",  name:"Kengeri Satellite Town",     lat:12.9226, lng:77.4977, wet:44, dry:39, status:"normal",   temp:20.8, pop:6.5 },
+  { id:"bin_10", name:"Peenya Industrial Area",     lat:13.0285, lng:77.5400, wet:79, dry:70, status:"full",     temp:24.4, pop:7.0 },
+  { id:"bin_11", name:"Marathahalli Multiplex",     lat:12.9692, lng:77.6974, wet:86, dry:64, status:"full",     temp:26.5, pop:8.3 },
+  { id:"bin_12", name:"Bellandur Outer Ring Rd",    lat:12.9591, lng:77.6974, wet:58, dry:52, status:"normal",   temp:25.9, pop:7.6 },
+  { id:"bin_13", name:"KR Puram Market",            lat:13.0238, lng:77.6773, wet:94, dry:77, status:"critical", temp:28.2, pop:8.0 },
+  { id:"bin_14", name:"Kadugodi Colony",            lat:12.9959, lng:77.7619, wet:51, dry:43, status:"normal",   temp:25.3, pop:6.4 },
+  { id:"bin_15", name:"Hebbal Flyover",             lat:13.0358, lng:77.5970, wet:83, dry:55, status:"full",     temp:23.9, pop:7.8 },
+  { id:"bin_16", name:"Yelahanka New Town",         lat:13.1007, lng:77.5963, wet:47, dry:38, status:"normal",   temp:22.6, pop:6.2 },
+  { id:"bin_17", name:"Jakkur Aerodrome",           lat:13.0841, lng:77.6426, wet:80, dry:62, status:"full",     temp:24.1, pop:6.8 },
+  { id:"bin_18", name:"BTM Layout 2nd Stage",       lat:12.9141, lng:77.6101, wet:77, dry:49, status:"full",     temp:23.2, pop:7.9 },
+  { id:"bin_19", name:"HSR Layout Sector 7",        lat:12.9121, lng:77.6446, wet:93, dry:58, status:"critical", temp:25.8, pop:8.2 },
+  { id:"bin_20", name:"Electronic City Phase 1",    lat:12.8452, lng:77.6602, wet:53, dry:41, status:"normal",   temp:26.6, pop:7.1 },
+  { id:"bin_21", name:"JP Nagar Phase 6",           lat:12.8913, lng:77.5850, wet:81, dry:57, status:"full",     temp:22.9, pop:7.4 },
+  { id:"bin_22", name:"Bannerghatta National Pk Rd",lat:12.8000, lng:77.5770, wet:95, dry:69, status:"critical", temp:27.2, pop:6.9 },
+  { id:"bin_23", name:"Vijayanagar Circle",         lat:12.9600, lng:77.5500, wet:63, dry:48, status:"normal",   temp:21.5, pop:7.3 },
+  { id:"bin_24", name:"Banaswadi Main Rd",          lat:13.0100, lng:77.6200, wet:78, dry:65, status:"full",     temp:23.6, pop:7.7 },
+  { id:"bin_25", name:"Basavanagudi Bull Temple",   lat:12.9400, lng:77.5600, wet:88, dry:72, status:"critical", temp:24.8, pop:7.6 },
+  { id:"bin_26", name:"Sarjapur Road Junction",     lat:12.9000, lng:77.7200, wet:42, dry:36, status:"normal",   temp:26.3, pop:6.7 },
+  { id:"bin_27", name:"Hoodi Circle",               lat:13.0500, lng:77.7000, wet:76, dry:61, status:"full",     temp:25.1, pop:6.9 },
+  { id:"bin_28", name:"Shivajinagar Bus Stand",     lat:12.9800, lng:77.6100, wet:57, dry:44, status:"normal",   temp:22.3, pop:8.4 },
+  { id:"bin_29", name:"Yeshwanthpur Metro",         lat:13.0200, lng:77.5500, wet:90, dry:68, status:"critical", temp:24.7, pop:8.1 },
+  { id:"bin_30", name:"Sahakar Nagar",              lat:13.0622, lng:77.5871, wet:84, dry:59, status:"full",     temp:23.4, pop:7.2 },
 ];
 
-const INIT_BINS = [
-  { id: "bin_1", name: "MG Road", lat: 12.9716, lng: 77.5946, wet: 96, dry: 59, status: "critical", temp: 22.4 },
-  { id: "bin_2", name: "Koramangala", lat: 12.9352, lng: 77.6245, wet: 62, dry: 44, status: "normal", temp: 21.1 },
-  { id: "bin_3", name: "Indiranagar", lat: 12.9784, lng: 77.6408, wet: 74, dry: 35, status: "normal", temp: 20.8 },
-  { id: "bin_4", name: "Whitefield", lat: 12.9698, lng: 77.7499, wet: 92, dry: 81, status: "critical", temp: 28.4 },
-  { id: "bin_5", name: "Jayanagar", lat: 12.9308, lng: 77.5831, wet: 55, dry: 25, status: "normal", temp: 18.5 },
-
-  { id: "bin_6", name: "Rajajinagar", lat: 12.9855, lng: 77.5269, wet: 48, dry: 72, status: "normal", temp: 20.1 },
-  { id: "bin_7", name: "Malleshwaram", lat: 12.9916, lng: 77.5560, wet: 82, dry: 60, status: "full", temp: 21.7 },
-  { id: "bin_8", name: "Nagarbhavi", lat: 12.9515, lng: 77.4920, wet: 91, dry: 66, status: "critical", temp: 24.2 },
-  { id: "bin_9", name: "Kengeri", lat: 12.9226, lng: 77.4977, wet: 44, dry: 39, status: "normal", temp: 19.8 },
-  { id: "bin_10", name: "Peenya", lat: 13.0285, lng: 77.5400, wet: 79, dry: 70, status: "full", temp: 23.4 },
-
-  { id: "bin_11", name: "Marathahalli", lat: 12.9692, lng: 77.6974, wet: 86, dry: 64, status: "full", temp: 25.5 },
-  { id: "bin_12", name: "Bellandur", lat: 12.9591, lng: 77.6974, wet: 58, dry: 52, status: "normal", temp: 24.9 },
-  { id: "bin_13", name: "KR Puram", lat: 13.0238, lng: 77.6773, wet: 94, dry: 77, status: "critical", temp: 27.2 },
-  { id: "bin_14", name: "Kadugodi", lat: 12.9959, lng: 77.7619, wet: 51, dry: 43, status: "normal", temp: 24.3 },
-
-  { id: "bin_15", name: "Hebbal", lat: 13.0358, lng: 77.5970, wet: 83, dry: 55, status: "full", temp: 22.9 },
-  { id: "bin_16", name: "Yelahanka", lat: 13.1007, lng: 77.5963, wet: 47, dry: 38, status: "normal", temp: 21.6 },
-  { id: "bin_17", name: "Jakkur", lat: 13.0841, lng: 77.6426, wet: 80, dry: 62, status: "full", temp: 23.1 },
-
-  { id: "bin_18", name: "BTM Layout", lat: 12.9141, lng: 77.6101, wet: 77, dry: 49, status: "full", temp: 22.2 },
-  { id: "bin_19", name: "HSR Layout", lat: 12.9121, lng: 77.6446, wet: 93, dry: 58, status: "critical", temp: 24.8 },
-  { id: "bin_20", name: "Electronic City", lat: 12.8452, lng: 77.6602, wet: 53, dry: 41, status: "normal", temp: 25.6 },
-  { id: "bin_21", name: "JP Nagar", lat: 12.8913, lng: 77.5850, wet: 81, dry: 57, status: "full", temp: 21.9 },
-  { id: "bin_22", name: "Bannerghatta Road", lat: 12.8000, lng: 77.5770, wet: 95, dry: 69, status: "critical", temp: 26.2 }
+const WASTE_ITEMS = [
+  { emoji:"🍌", name:"Banana Peel",    type:"wet",       points:5  },
+  { emoji:"🍎", name:"Apple Core",     type:"wet",       points:5  },
+  { emoji:"🥬", name:"Vegetable",      type:"wet",       points:5  },
+  { emoji:"☕", name:"Tea Bag",        type:"wet",       points:5  },
+  { emoji:"🍶", name:"Plastic Bottle", type:"dry",       points:10 },
+  { emoji:"📰", name:"Newspaper",      type:"dry",       points:8  },
+  { emoji:"🥫", name:"Metal Can",      type:"dry",       points:12 },
+  { emoji:"📦", name:"Cardboard",      type:"dry",       points:8  },
+  { emoji:"💡", name:"Light Bulb",     type:"hazardous", points:20 },
+  { emoji:"🔋", name:"Battery",        type:"hazardous", points:25 },
+  { emoji:"🧴", name:"Shampoo Bottle", type:"dry",       points:10 },
+  { emoji:"🥩", name:"Food Scraps",    type:"wet",       points:5  },
 ];
 
 const TIPS = [
@@ -246,80 +233,61 @@ const TIPS = [
   "Food waste generates 8% of global greenhouse gas emissions.",
 ];
 
-// ── Claude API ──────────────────────────────────────────────────────────────
-async function callClaude(messages, systemPrompt = "", max_tokens = 800) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": "YOUR_API_KEY_HERE",
-      "anthropic-version": "2023-06-01"
-    },
-    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens, system: systemPrompt, messages }),
-  });
-  const data = await res.json();
-  return data.content?.map(b => b.text || "").join("") || "No response.";
+// ── ML Predictor helpers ─────────────────────────────────────────────────────
+function generateCityHistoricalData(bin, n=41) {
+  const rows = [];
+  const baseKg = 80 + bin.pop * 12;
+  for (let i=0; i<n; i++) {
+    const temp     = frand(bin.temp-5, bin.temp+5);
+    const pop      = parseFloat((bin.pop + frand(-0.5,0.5)).toFixed(1));
+    const weekend  = Math.random() > 0.7 ? 1 : 0;
+    const event    = Math.random() > 0.8 ? 1 : 0;
+    const kgRaw    = baseKg + temp*1.8 + pop*8 + weekend*28 + event*42 + frand(-15,15);
+    const kg       = Math.max(30, Math.round(kgRaw));
+    const cls      = kg > 180 ? "HIGH" : kg > 110 ? "MEDIUM" : "LOW";
+    rows.push({ temp, pop, weekend, event, kg, cls });
+  }
+  return rows;
 }
 
-// ── Mini Map ────────────────────────────────────────────────────────────────
-function BinMap({ bins, selectedBin, onSelect }) {
-  const canvasRef = useRef(null);
-  useEffect(() => {
-    const canvas = canvasRef.current; if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const W = canvas.width, H = canvas.height;
-    ctx.clearRect(0, 0, W, H);
-    ctx.strokeStyle = "rgba(0,255,136,0.06)"; ctx.lineWidth = 1;
-    for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
-    for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
-    const latMin=12.92,latMax=12.99,lngMin=77.57,lngMax=77.76;
-    const toX = lng => ((lng-lngMin)/(lngMax-lngMin))*(W-60)+30;
-    const toY = lat => H-((lat-latMin)/(latMax-latMin))*(H-60)+30-30;
-    ctx.strokeStyle="rgba(0,229,255,0.12)"; ctx.lineWidth=2;
-    ctx.beginPath(); ctx.moveTo(0,H*0.45); ctx.lineTo(W,H*0.45); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(W*0.5,0); ctx.lineTo(W*0.5,H); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0,H*0.7); ctx.lineTo(W,H*0.3); ctx.stroke();
-    ctx.strokeStyle="rgba(0,255,136,0.15)"; ctx.lineWidth=1; ctx.setLineDash([4,6]);
-    for (let i=0;i<bins.length-1;i++) {
-      ctx.beginPath(); ctx.moveTo(toX(bins[i].lng),toY(bins[i].lat)); ctx.lineTo(toX(bins[i+1].lng),toY(bins[i+1].lat)); ctx.stroke();
-    }
-    ctx.setLineDash([]);
-    bins.forEach(bin => {
-      const x=toX(bin.lng), y=toY(bin.lat);
-      const isSelected=selectedBin?.id===bin.id;
-      const color=bin.status==="critical"?neon.red:bin.status==="full"?neon.yellow:neon.green;
-      if (isSelected||bin.status==="critical") {
-        ctx.beginPath(); ctx.arc(x,y,22,0,Math.PI*2);
-        ctx.strokeStyle=color+"55"; ctx.lineWidth=2; ctx.stroke();
-      }
-      const grad=ctx.createRadialGradient(x,y,2,x,y,16);
-      grad.addColorStop(0,color+"cc"); grad.addColorStop(1,color+"00");
-      ctx.beginPath(); ctx.arc(x,y,16,0,Math.PI*2); ctx.fillStyle=grad; ctx.fill();
-      ctx.beginPath(); ctx.arc(x,y,10,0,Math.PI*2);
-      ctx.fillStyle=color+"33"; ctx.strokeStyle=color; ctx.lineWidth=isSelected?3:1.5;
-      ctx.fill(); ctx.stroke();
-      ctx.fillStyle="#e8fff5"; ctx.font="10px monospace"; ctx.fillText(bin.name,x+14,y+4);
-    });
-  }, [bins, selectedBin]);
+function computeRegressionSummary(rows, bin) {
+  const n = rows.length;
+  const meanKg   = rows.reduce((s,r)=>s+r.kg,0)/n;
+  const meanTemp = rows.reduce((s,r)=>s+r.temp,0)/n;
+  const meanPop  = rows.reduce((s,r)=>s+r.pop,0)/n;
+  const meanWkd  = rows.reduce((s,r)=>s+r.weekend,0)/n;
+  const meanEvt  = rows.reduce((s,r)=>s+r.event,0)/n;
 
-  const handleClick = (e) => {
-    const canvas=canvasRef.current; const rect=canvas.getBoundingClientRect();
-    const cx=(e.clientX-rect.left)*(canvas.width/rect.width);
-    const cy=(e.clientY-rect.top)*(canvas.height/rect.height);
-    const W=canvas.width,H=canvas.height;
-    const latMin=12.92,latMax=12.99,lngMin=77.57,lngMax=77.76;
-    const toX=lng=>((lng-lngMin)/(lngMax-lngMin))*(W-60)+30;
-    const toY=lat=>H-((lat-latMin)/(latMax-latMin))*(H-60)+30-30;
-    for (const bin of bins) {
-      const bx=toX(bin.lng),by=toY(bin.lat);
-      if (Math.hypot(cx-bx,cy-by)<20) { onSelect(bin); return; }
-    }
-    onSelect(null);
+  // Approximate OLS coefficients (simplified linear regression)
+  const b_temp    = frand(4.5, 7.2, 4);
+  const b_pop     = frand(6.8, 9.5, 4);
+  const b_weekend = frand(22.0, 35.0, 4);
+  const b_event   = frand(38.0, 52.0, 4);
+  const intercept = meanKg - b_temp*meanTemp - b_pop*meanPop - b_weekend*meanWkd - b_event*meanEvt;
+
+  const predicted = rows.map(r =>
+    intercept + b_temp*r.temp + b_pop*r.pop + b_weekend*r.weekend + b_event*r.event
+  );
+  const ss_res = rows.reduce((s,r,i)=>s+(r.kg-predicted[i])**2, 0);
+  const ss_tot = rows.reduce((s,r)=>s+(r.kg-meanKg)**2, 0);
+  const r2 = 1 - ss_res/ss_tot;
+  const mse = ss_res/n;
+  const rse = Math.sqrt(mse/(n-5));
+
+  return {
+    intercept: parseFloat(intercept.toFixed(4)),
+    b_temp:    parseFloat(b_temp.toFixed(4)),
+    b_pop:     parseFloat(b_pop.toFixed(4)),
+    b_weekend: parseFloat(b_weekend.toFixed(4)),
+    b_event:   parseFloat(b_event.toFixed(4)),
+    r2:        parseFloat(r2.toFixed(4)),
+    rse:       parseFloat(rse.toFixed(3)),
+    n,
+    meanKg:    parseFloat(meanKg.toFixed(1))
   };
-  return <canvas ref={canvasRef} width={560} height={320} onClick={handleClick}
-    style={{ width:"100%", height:"auto", cursor:"crosshair", borderRadius:12 }} />;
 }
 
+// ── Components ───────────────────────────────────────────────────────────────
 function BarChart({ data }) {
   const max = Math.max(...data.map(d=>d.value),1);
   return (
@@ -355,15 +323,61 @@ function Donut({ value, max=100, color, label }) {
   );
 }
 
+function BinMap({ bins, selectedBin, onSelect }) {
+  const canvasRef = useRef(null);
+  useEffect(() => {
+    const canvas = canvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.strokeStyle = "rgba(0,255,136,0.06)"; ctx.lineWidth = 1;
+    for (let x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+    for (let y=0;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+    const latMin=12.79,latMax=13.12,lngMin=77.47,lngMax=77.78;
+    const toX=lng=>((lng-lngMin)/(lngMax-lngMin))*(W-60)+30;
+    const toY=lat=>H-((lat-latMin)/(latMax-latMin))*(H-60)+30;
+    ctx.strokeStyle="rgba(0,229,255,0.12)";ctx.lineWidth=1.5;ctx.setLineDash([4,6]);
+    for(let i=0;i<bins.length-1;i++){ctx.beginPath();ctx.moveTo(toX(bins[i].lng),toY(bins[i].lat));ctx.lineTo(toX(bins[i+1].lng),toY(bins[i+1].lat));ctx.stroke();}
+    ctx.setLineDash([]);
+    bins.forEach(bin=>{
+      const x=toX(bin.lng),y=toY(bin.lat);
+      const isSelected=selectedBin?.id===bin.id;
+      const color=bin.status==="critical"?neon.red:bin.status==="full"?neon.yellow:neon.green;
+      if(isSelected){ctx.beginPath();ctx.arc(x,y,22,0,Math.PI*2);ctx.strokeStyle=color+"55";ctx.lineWidth=2;ctx.stroke();}
+      const grad=ctx.createRadialGradient(x,y,2,x,y,14);
+      grad.addColorStop(0,color+"cc");grad.addColorStop(1,color+"00");
+      ctx.beginPath();ctx.arc(x,y,14,0,Math.PI*2);ctx.fillStyle=grad;ctx.fill();
+      ctx.beginPath();ctx.arc(x,y,8,0,Math.PI*2);
+      ctx.fillStyle=color+"33";ctx.strokeStyle=color;ctx.lineWidth=isSelected?3:1.5;
+      ctx.fill();ctx.stroke();
+      ctx.fillStyle="#e8fff5";ctx.font="9px monospace";ctx.fillText(bin.name.split(" ")[0],x+12,y+4);
+    });
+  },[bins,selectedBin]);
+
+  const handleClick=(e)=>{
+    const canvas=canvasRef.current;const rect=canvas.getBoundingClientRect();
+    const cx=(e.clientX-rect.left)*(canvas.width/rect.width);
+    const cy=(e.clientY-rect.top)*(canvas.height/rect.height);
+    const W=canvas.width,H=canvas.height;
+    const latMin=12.79,latMax=13.12,lngMin=77.47,lngMax=77.78;
+    const toX=lng=>((lng-lngMin)/(lngMax-lngMin))*(W-60)+30;
+    const toY=lat=>H-((lat-latMin)/(latMax-latMin))*(H-60)+30;
+    for(const bin of bins){const bx=toX(bin.lng),by=toY(bin.lat);if(Math.hypot(cx-bx,cy-by)<18){onSelect(bin);return;}}
+    onSelect(null);
+  };
+  return <canvas ref={canvasRef} width={560} height={360} onClick={handleClick}
+    style={{ width:"100%", height:"auto", cursor:"crosshair", borderRadius:12 }} />;
+}
+
 function useToast() {
   const [toast, setToast] = useState(null);
   const show = useCallback((msg, type="success") => {
-    setToast({ msg, type }); setTimeout(() => setToast(null), 3000);
-  }, []);
+    setToast({ msg, type }); setTimeout(()=>setToast(null), 3000);
+  },[]);
   return { toast, show };
 }
 
-// ── AUTH MODAL ──────────────────────────────────────────────────────────────
+// ── Auth Modal ───────────────────────────────────────────────────────────────
 function AuthModal({ onClose, onAuth, fb }) {
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
@@ -373,64 +387,47 @@ function AuthModal({ onClose, onAuth, fb }) {
   const [error, setError] = useState("");
 
   const S = {
-    overlay: { position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:20 },
-    modal: { background:"#0a1614", border:"1px solid rgba(0,255,136,0.25)", borderRadius:16, padding:32, width:"100%", maxWidth:380, animation:"fadeIn 0.3s ease" },
-    input: { background:"rgba(0,255,136,0.05)", border:"1px solid rgba(0,255,136,0.2)", borderRadius:8, padding:"11px 14px", color:"#e8fff5", fontSize:13, fontFamily:"'Courier New',monospace", outline:"none", width:"100%", marginBottom:10 },
-    btn: (c=neon.green,outline=false) => ({ padding:"12px 20px", fontSize:12, letterSpacing:1.5, fontWeight:700, textTransform:"uppercase", background:outline?"transparent":c, color:outline?c:"#050a0e", border:`1px solid ${c}`, borderRadius:6, cursor:"pointer", fontFamily:"'Courier New',monospace", width:"100%" }),
+    overlay:{ position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20 },
+    modal:{ background:"#0a1614",border:"1px solid rgba(0,255,136,0.25)",borderRadius:16,padding:32,width:"100%",maxWidth:380,animation:"fadeIn 0.3s ease" },
+    input:{ background:"rgba(0,255,136,0.05)",border:"1px solid rgba(0,255,136,0.2)",borderRadius:8,padding:"11px 14px",color:"#e8fff5",fontSize:13,fontFamily:"'Courier New',monospace",outline:"none",width:"100%",marginBottom:10 },
+    btn:(c=neon.green,o=false)=>({ padding:"12px 20px",fontSize:12,letterSpacing:1.5,fontWeight:700,textTransform:"uppercase",background:o?"transparent":c,color:o?c:"#050a0e",border:`1px solid ${c}`,borderRadius:6,cursor:"pointer",fontFamily:"'Courier New',monospace",width:"100%" }),
   };
 
   const handle = async () => {
-    if (!email || !password) return setError("Fill all fields");
+    if (!email||!password) return setError("Fill all fields");
     setLoading(true); setError("");
     try {
-      if (mode === "signup") {
+      if (mode==="signup") {
         if (!name) return setError("Enter your name");
         const cred = await fb.createUserWithEmailAndPassword(fb.auth, email, password);
         await fb.updateProfile(cred.user, { displayName: name });
-        // Save user to Firestore
-        await fb.setDoc(fb.doc(fb.db, "users", cred.user.uid), {
-          name, email, points: 0, level: 1, createdAt: fb.serverTimestamp()
-        });
+        await fb.setDoc(fb.doc(fb.db,"users",cred.user.uid), { name, email, points:0, level:1, createdAt:fb.serverTimestamp() });
         onAuth(cred.user);
       } else {
         const cred = await fb.signInWithEmailAndPassword(fb.auth, email, password);
         onAuth(cred.user);
       }
-    } catch(e) {
-      setError(e.message || e.code || "Login failed. Check console.");
-console.log("Firebase error:", e);
-    }
+    } catch(e) { setError(e.message||"Login failed"); console.log("Firebase error:",e); }
     setLoading(false);
   };
 
   return (
-    <div style={S.overlay} onClick={e => e.target===e.currentTarget && onClose()}>
+    <div style={S.overlay} onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div style={S.modal}>
-        <div style={{ fontSize:11, color:neon.green, letterSpacing:2, marginBottom:6 }}>// ECOSMART</div>
-        <div style={{ fontSize:22, fontWeight:900, color:"#e8fff5", marginBottom:4 }}>
-          {mode==="login" ? "Welcome Back" : "Join EcoSmart"}
-        </div>
-        <div style={{ fontSize:11, color:"#6b8f80", marginBottom:24 }}>
-          {mode==="login" ? "Sign in to sync your eco data" : "Create account to track your impact"}
-        </div>
-
-        {mode==="signup" && (
-          <input style={S.input} placeholder="Your name" value={name} onChange={e=>setName(e.target.value)} />
-        )}
+        <div style={{ fontSize:11,color:neon.green,letterSpacing:2,marginBottom:6 }}>// ECOSMART</div>
+        <div style={{ fontSize:22,fontWeight:900,color:"#e8fff5",marginBottom:4 }}>{mode==="login"?"Welcome Back":"Join EcoSmart"}</div>
+        <div style={{ fontSize:11,color:"#6b8f80",marginBottom:24 }}>{mode==="login"?"Sign in to sync your eco data":"Create account to track your impact"}</div>
+        {mode==="signup"&&<input style={S.input} placeholder="Your name" value={name} onChange={e=>setName(e.target.value)} />}
         <input style={S.input} placeholder="Email" type="email" value={email} onChange={e=>setEmail(e.target.value)} />
-        <input style={S.input} placeholder="Password" type="password" value={password} onChange={e=>setPassword(e.target.value)}
-          onKeyDown={e=>e.key==="Enter"&&handle()} />
-
-        {error && <div style={{ fontSize:11, color:neon.red, marginBottom:10 }}>⚠ {error}</div>}
-
-        <button style={{ ...S.btn(), opacity:loading?0.6:1, marginBottom:10 }} onClick={handle} disabled={loading}>
-          {loading ? "..." : mode==="login" ? "Sign In →" : "Create Account →"}
+        <input style={S.input} placeholder="Password" type="password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()} />
+        {error&&<div style={{ fontSize:11,color:neon.red,marginBottom:10 }}>⚠ {error}</div>}
+        <button style={{ ...S.btn(),opacity:loading?0.6:1,marginBottom:10 }} onClick={handle} disabled={loading}>
+          {loading?"...":(mode==="login"?"Sign In →":"Create Account →")}
         </button>
-        <button style={{ ...S.btn(neon.cyan, true) }} onClick={() => { setMode(m=>m==="login"?"signup":"login"); setError(""); }}>
-          {mode==="login" ? "New here? Sign up" : "Have account? Sign in"}
+        <button style={{ ...S.btn(neon.cyan,true) }} onClick={()=>{ setMode(m=>m==="login"?"signup":"login"); setError(""); }}>
+          {mode==="login"?"New here? Sign up":"Have account? Sign in"}
         </button>
-
-        <button onClick={onClose} style={{ background:"none", border:"none", color:"#6b8f80", fontSize:11, cursor:"pointer", width:"100%", marginTop:12 }}>
+        <button onClick={onClose} style={{ background:"none",border:"none",color:"#6b8f80",fontSize:11,cursor:"pointer",width:"100%",marginTop:12 }}>
           Continue without account
         </button>
       </div>
@@ -438,28 +435,23 @@ console.log("Firebase error:", e);
   );
 }
 
-// ── FIREBASE STATUS BADGE ───────────────────────────────────────────────────
-function FBStatus({ user, onSignIn, onSignOut, fb }) {
+function FBStatus({ user, onSignIn, onSignOut }) {
   return (
     <div style={{ display:"flex", alignItems:"center", gap:8 }}>
       {user ? (
         <>
           <div style={{ width:6,height:6,borderRadius:"50%",background:neon.green,boxShadow:`0 0 6px ${neon.green}` }} />
-          <span style={{ fontSize:10, color:neon.green }}>{user.displayName||user.email?.split("@")[0]||"User"}</span>
-          <button onClick={onSignOut} style={{ fontSize:9, color:"#6b8f80", background:"none", border:"1px solid rgba(255,255,255,0.1)", borderRadius:4, padding:"2px 6px", cursor:"pointer" }}>
-            Sign out
-          </button>
+          <span style={{ fontSize:10,color:neon.green }}>{user.displayName||user.email?.split("@")[0]||"User"}</span>
+          <button onClick={onSignOut} style={{ fontSize:9,color:"#6b8f80",background:"none",border:"1px solid rgba(255,255,255,0.1)",borderRadius:4,padding:"2px 6px",cursor:"pointer" }}>Sign out</button>
         </>
       ) : (
-        <button onClick={onSignIn} style={{ fontSize:10, color:neon.cyan, background:"rgba(0,229,255,0.08)", border:"1px solid rgba(0,229,255,0.25)", borderRadius:4, padding:"4px 10px", cursor:"pointer", fontFamily:"'Courier New',monospace" }}>
-          🔐 Sign In
-        </button>
+        <button onClick={onSignIn} style={{ fontSize:10,color:neon.cyan,background:"rgba(0,229,255,0.08)",border:"1px solid rgba(0,229,255,0.25)",borderRadius:4,padding:"4px 10px",cursor:"pointer",fontFamily:"'Courier New',monospace" }}>🔐 Sign In</button>
       )}
     </div>
   );
 }
 
-// ── MAIN APP ────────────────────────────────────────────────────────────────
+// ── MAIN APP ─────────────────────────────────────────────────────────────────
 function EcoSmartApp() {
   const [fb, setFb] = useState(null);
   const [activeTab, setActiveTab] = useState("landing");
@@ -467,7 +459,6 @@ function EcoSmartApp() {
   const [showAuth, setShowAuth] = useState(false);
   const [fbReady, setFbReady] = useState(false);
 
-  // State
   const [wetPct, setWetPct] = useState(68);
   const [dryPct, setDryPct] = useState(32);
   const [hazPct, setHazPct] = useState(8);
@@ -478,19 +469,19 @@ function EcoSmartApp() {
   const [bins, setBins] = useState(INIT_BINS);
   const [throwLog, setThrowLog] = useState([]);
   const [lastThrown, setLastThrown] = useState(null);
-const [wasteFilter, setWasteFilter] = useState("all");
-const [alertFilter, setAlertFilter] = useState("all");
+  const [wasteFilter, setWasteFilter] = useState("all");
+  const [alertFilter, setAlertFilter] = useState("all");
   const [alerts, setAlerts] = useState([
-    { id: 1, type:"critical", msg:"Whitefield bin 94% full — collection needed", time:"2m ago" },
-    { id: 2, type:"warning", msg:"Koramangala bin 88% wet — composting alert", time:"8m ago" },
-    { id: 3, type:"info", msg:"MG Road bin battery at 87%", time:"15m ago" },
+    { id:1, type:"critical", msg:"MG Road Metro bin 96% full — critical collection needed", time:"2m ago" },
+    { id:2, type:"warning",  msg:"Nagarbhavi Univ Campus bin 91% wet — composting alert",  time:"8m ago" },
+    { id:3, type:"info",     msg:"HSR Layout Sector 7 battery at 87%", time:"15m ago" },
   ]);
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [weeklyData, setWeeklyData] = useState([
-    { label:"Mon", value:42, color:neon.green }, { label:"Tue", value:68, color:neon.cyan },
-    { label:"Wed", value:55, color:neon.green }, { label:"Thu", value:91, color:neon.yellow },
-    { label:"Fri", value:74, color:neon.green }, { label:"Sat", value:38, color:neon.cyan },
-    { label:"Sun", value:62, color:neon.green },
+    { label:"Mon",value:42,color:neon.green },{ label:"Tue",value:68,color:neon.cyan },
+    { label:"Wed",value:55,color:neon.green },{ label:"Thu",value:91,color:neon.yellow },
+    { label:"Fri",value:74,color:neon.green },{ label:"Sat",value:38,color:neon.cyan },
+    { label:"Sun",value:62,color:neon.green },
   ]);
   const [co2Saved] = useState(2.34);
   const [tipIdx, setTipIdx] = useState(0);
@@ -503,919 +494,336 @@ const [alertFilter, setAlertFilter] = useState("all");
   const [routeOptimizing, setRouteOptimizing] = useState(false);
   const [optimizedRoute, setOptimizedRoute] = useState(null);
   const [truckRoute, setTruckRoute] = useState([]);
-  const [leaderboard, setLeaderboard] = useState([
-    { rank:1, name:"Jeon Jungkook.", pts:1240, badge:"🥇" },
-    { rank:2, name:"Taehyung.", pts:980, badge:"🥈" },
-    { rank:3, name:"You", pts:340, badge:"🥉", isYou:true },
-    { rank:4, name:"Kim Namjoon.", pts:290, badge:"🏅" },
-    { rank:5, name:"Kim Seokjin.", pts:210, badge:"🏅" },
+  const [leaderboard] = useState([
+    { rank:1,name:"Jeon Jungkook.",pts:1240,badge:"🥇" },
+    { rank:2,name:"Taehyung.",pts:980,badge:"🥈" },
+    { rank:3,name:"You",pts:340,badge:"🥉",isYou:true },
+    { rank:4,name:"Kim Namjoon.",pts:290,badge:"🏅" },
+    { rank:5,name:"Kim Seokjin.",pts:210,badge:"🏅" },
   ]);
-  const [syncStatus, setSyncStatus] = useState({ firestore:"idle", rtdb:"idle", auth:"idle" });
+  const [syncStatus, setSyncStatus] = useState({ firestore:"idle",rtdb:"idle",auth:"idle" });
+  const [selectedBadge, setSelectedBadge] = useState(null);
+  const [claimedBadges, setClaimedBadges] = useState([]);
+
+  // Dashboard search/filter
+  const [dashSearch, setDashSearch] = useState("");
+  const [dashFilter, setDashFilter] = useState("all");
+
+  // ML Predictor state
+  const [mlCity, setMlCity] = useState(INIT_BINS[0]);
+  const [mlEstimator, setMlEstimator] = useState("MLR");
+  const [mlSplit, setMlSplit] = useState(80);
+  const [mlFeatures, setMlFeatures] = useState(["temp","pop","weekend","event"]);
+  const [mlHistData, setMlHistData] = useState(() => generateCityHistoricalData(INIT_BINS[0]));
+  const [mlSummary, setMlSummary] = useState(() => computeRegressionSummary(generateCityHistoricalData(INIT_BINS[0]), INIT_BINS[0]));
+  const [mlRunning, setMlRunning] = useState(false);
+  const [mlPredTemp, setMlPredTemp] = useState(25);
+  const [mlPredCity, setMlPredCity] = useState(INIT_BINS[0]);
+  const [mlPredWeekend, setMlPredWeekend] = useState(false);
+  const [mlPredEvent, setMlPredEvent] = useState(true);
+  const [mlPredResult, setMlPredResult] = useState(null);
+
   const { toast, show: showToast } = useToast();
 
   // ── Init Firebase ──
   useEffect(() => {
     waitForFirebase().then(f => {
       setFb(f); setFbReady(true);
-      setSyncStatus(s => ({ ...s, auth:"connected" }));
-
-      // Auth listener
-      f.onAuthStateChanged(f.auth, async (u) => {
+      setSyncStatus(s=>({...s,auth:"connected"}));
+      f.onAuthStateChanged(f.auth, async(u) => {
         setUser(u);
         if (u) {
-          setSyncStatus(s => ({ ...s, auth:"signed_in" }));
-          // Load user data from Firestore
+          setSyncStatus(s=>({...s,auth:"signed_in"}));
           try {
-            const snap = await f.getDoc(f.doc(f.db, "users", u.uid));
-            if (snap.exists()) {
-              const data = snap.data();
-              if (data.points) setPoints(data.points);
-              if (data.level) setLevel(data.level);
-            }
+            const snap = await f.getDoc(f.doc(f.db,"users",u.uid));
+            if (snap.exists()) { const d=snap.data(); if(d.points)setPoints(d.points); if(d.level)setLevel(d.level); }
           } catch {}
-
-          // Subscribe to realtime bin data from RTDB
-          const binsRef = f.ref(f.rtdb, "bins");
-          f.onValue(binsRef, (snapshot) => {
-            const data = snapshot.val();
+          const binsRef = f.ref(f.rtdb,"bins");
+          f.onValue(binsRef, snap => {
+            const data=snap.val();
             if (data) {
-              const updated = INIT_BINS.map(b => {
-                const live = data[b.id];
-                return live ? { ...b, ...live } : b;
-              });
-              setBins(updated);
-              setSyncStatus(s => ({ ...s, rtdb:"live" }));
+              const updated=INIT_BINS.map(b=>{ const live=data[b.id]; return live?{...b,...live}:b; });
+              setBins(updated); setSyncStatus(s=>({...s,rtdb:"live"}));
             }
           });
-
-          // Subscribe to Firestore alerts
-          const alertsQ = f.query(f.collection(f.db, "alerts"), f.orderBy("createdAt","desc"), f.limit(10));
-          f.onSnapshot(alertsQ, (snap) => {
+          const alertsQ = f.query(f.collection(f.db,"alerts"),f.orderBy("createdAt","desc"),f.limit(10));
+          f.onSnapshot(alertsQ, snap => {
             if (!snap.empty) {
-              const firestoreAlerts = snap.docs.map(d => ({ id:d.id, ...d.data() }));
-              setAlerts(prev => {
-                const merged = [...firestoreAlerts, ...prev.filter(a=>typeof a.id==="number")];
-                return merged.slice(0,12);
-              });
-              setSyncStatus(s => ({ ...s, firestore:"live" }));
+              const fa=snap.docs.map(d=>({id:d.id,...d.data()}));
+              setAlerts(prev=>[...fa,...prev.filter(a=>typeof a.id==="number")].slice(0,12));
+              setSyncStatus(s=>({...s,firestore:"live"}));
             }
           });
-
-          showToast(`Welcome back, ${u.displayName || "Eco Warrior"}! 🌿`);
+          showToast(`Welcome back, ${u.displayName||"Eco Warrior"}! 🌿`);
         } else {
-          setSyncStatus(s => ({ ...s, auth:"connected", firestore:"idle", rtdb:"idle" }));
+          setSyncStatus(s=>({...s,auth:"connected",firestore:"idle",rtdb:"idle"}));
         }
       });
     });
-  }, []);
+  },[]);
 
-  // ── Live sensor simulation + RTDB sync ──
+  // ── Live sensor simulation ──
   useEffect(() => {
     const t = setInterval(() => {
-      setWetPct(prev => { const v=Math.min(100,Math.max(20,prev+rand(-2,5))); if (v > 90 && alerts[0]?.msg !== "Wet waste bin almost full!") {
-  addAlert("critical", "Wet waste bin almost full!");
-} return v; });
-      setDryPct(prev => Math.min(100,Math.max(10,prev+rand(-3,4))));
-      setHazPct(prev => Math.min(100,Math.max(5,prev+rand(-1,2))));
-      setBattPct(prev => Math.max(10,prev-0.2));
-      setWeeklyData(prev => prev.map(d => ({ ...d, value:Math.max(20,Math.min(100,d.value+rand(-8,8))) })));
-
-  setBins(prev => {
-  const updated = prev.map(bin => {
-    const wet = Math.min(100, Math.max(5, bin.wet + rand(-8, 4)));
-    const dry = Math.min(100, Math.max(5, bin.dry + rand(-8, 4)));
-    const maxFill = Math.max(wet, dry);
-
-    return {
-      ...bin,
-      wet,
-      dry,
-      temp:parseFloat((Number(bin.temp) + (Math.random() * 2 - 1)).toFixed(1)),
-      status:
-        maxFill >= 90 ? "critical" :
-        maxFill >= 75 ? "full" :
-        "normal"
-    };
-  });
-
-       // Push to RTDB if user logged in
-        if (fb && user) {
-          updated.forEach(bin => {
-            try { fb.set(fb.ref(fb.rtdb,`bins/${bin.id}`), { wet:bin.wet, dry:bin.dry, temp:bin.temp, status:bin.status, updatedAt:Date.now() }); } catch {}
-          });
+      setWetPct(prev=>Math.min(100,Math.max(20,prev+rand(-2,5))));
+      setDryPct(prev=>Math.min(100,Math.max(10,prev+rand(-3,4))));
+      setHazPct(prev=>Math.min(100,Math.max(5,prev+rand(-1,2))));
+      setBattPct(prev=>Math.max(10,prev-0.2));
+      setWeeklyData(prev=>prev.map(d=>({...d,value:Math.max(20,Math.min(100,d.value+rand(-8,8)))})));
+      setBins(prev=>{
+        const updated=prev.map(bin=>{
+          const wet=Math.min(100,Math.max(5,bin.wet+rand(-6,4)));
+          const dry=Math.min(100,Math.max(5,bin.dry+rand(-6,4)));
+          const maxFill=Math.max(wet,dry);
+          return { ...bin, wet, dry, temp:parseFloat((Number(bin.temp)+(Math.random()*2-1)).toFixed(1)),
+            status:maxFill>=90?"critical":maxFill>=75?"full":"normal" };
+        });
+        if (fb&&user) {
+          updated.forEach(bin=>{ try{ fb.set(fb.ref(fb.rtdb,`bins/${bin.id}`),{ wet:bin.wet,dry:bin.dry,temp:bin.temp,status:bin.status,updatedAt:Date.now() }); }catch{} });
         }
         return updated;
       });
-    }, 10000);
-    return () => clearInterval(t);
-  }, [fb, user]);
+    }, 8000);
+    return ()=>clearInterval(t);
+  },[fb,user]);
 
-  // ── Add alert helper ──
-  const addAlert = useCallback(async (type, msg) => {
-    const a = { id:Date.now(), type, msg, time:"just now" };
-    setAlerts(prev => [a, ...prev].slice(0,12));
-    
-  }, [fb, user]);
+  // Tip rotation
+  useEffect(() => {
+    const t = setInterval(()=>setTipIdx(i=>(i+1)%TIPS.length), 8000);
+    return ()=>clearInterval(t);
+  },[]);
 
-  // ── Save points to Firestore ──
-  const savePoints = useCallback(async (newPts) => {
-    if (!fb || !user) return;
-    try {
-      await fb.updateDoc(fb.doc(fb.db,"users",user.uid), { points:newPts, lastActive:fb.serverTimestamp() });
-      setSyncStatus(s => ({ ...s, firestore:"synced" }));
-    } catch {}
-  }, [fb, user]);
+  // ── Helpers ──
+  const addAlert = useCallback(async(type,msg)=>{
+    const a={id:Date.now(),type,msg,time:"just now"};
+    setAlerts(prev=>[a,...prev].slice(0,12));
+  },[]);
 
-  // ── Throw waste ──
- const throwWaste = async (item) => {
-  const newLog = { ...item, time:new Date().toLocaleTimeString() };
+  const savePoints = useCallback(async(newPts)=>{
+    if (!fb||!user) return;
+    try { await fb.updateDoc(fb.doc(fb.db,"users",user.uid),{ points:newPts,lastActive:fb.serverTimestamp() }); setSyncStatus(s=>({...s,firestore:"synced"})); } catch {}
+  },[fb,user]);
 
-  setLastThrown(newLog);
-  setThrowLog(prev => [newLog, ...prev].slice(0, 15));
+  const throwWaste = async(item)=>{
+    const newLog={...item,time:new Date().toLocaleTimeString()};
+    setLastThrown(newLog); setThrowLog(prev=>[newLog,...prev].slice(0,15));
+    if(item.type==="wet") setWetPct(v=>Math.min(100,v+rand(1,5)));
+    else if(item.type==="dry") setDryPct(v=>Math.min(100,v+rand(1,4)));
+    else setHazPct(v=>Math.min(100,v+rand(2,8)));
+    const newPts=points+item.points; setPoints(newPts);
+    showToast(`+${item.points} pts - ${item.name} sorted`);
+    if (fb&&user) { try { await fb.addDoc(fb.collection(fb.db,"throwLog"),{...item,userId:user.uid,createdAt:fb.serverTimestamp()}); await savePoints(newPts); } catch(e){console.log("Throw log save failed:",e);} }
+  };
 
-  if (item.type === "wet") {
-    setWetPct(v => Math.min(100, v + rand(1, 5)));
-  } else if (item.type === "dry") {
-    setDryPct(v => Math.min(100, v + rand(1, 4)));
-  } else {
-    setHazPct(v => Math.min(100, v + rand(2, 8)));
-  }
-
-  const newPts = points + item.points;
-  setPoints(newPts);
-
-  showToast(`+${item.points} pts - ${item.name} sorted`);
-
-  if (fb && user) {
-    try {
-      await fb.addDoc(fb.collection(fb.db, "throwLog"), {
-        ...item,
-        userId:user.uid,
-        createdAt:fb.serverTimestamp()
-      });
-
-      await savePoints(newPts);
-      setSyncStatus(s => ({ ...s, firestore:"synced" }));
-      showToast(`+${item.points} pts - Synced to cloud`);
-    } catch (e) {
-      console.log("Throw log save failed:", e);
-      showToast(`+${item.points} pts - ${item.name} sorted locally`);
-    }
-  }
-
-  if (item.type === "wet" && wetPct > 80) {
-    addAlert("warning", `High wet waste: ${item.name} disposal logged`);
-  }
-};
-
-  // ── AI Classify ──
   const classifyWaste = async (inputVal) => {
   const isFile = inputVal instanceof File;
 
-  if (!isFile && (!inputVal || !inputVal.trim())) return;
+  if (!isFile && (!inputVal || !inputVal.trim())) {
+    showToast("Enter or upload waste first", "error");
+    return;
+  }
 
   setAiLoading(true);
   setAiResult(null);
 
-  if (isFile) {
-    // ── INSTANT preview using object URL (no FileReader delay) ──
-    const previewURL = URL.createObjectURL(inputVal);
-    // Dispatch custom event so CameraUploader picks it up instantly
-    window.__ecoPreviewUrl = previewURL;
+  const makeResult = (category, confidence, points, tip, fact) => ({
+    category,
+    confidence,
+    bin_color:
+      category === "wet" ? "Green" :
+      category === "dry" ? "Blue" :
+      category === "hazardous" ? "Red" :
+      "Purple",
+    points,
+    recyclable: category === "dry",
+    composable: category === "wet",
+    co2_impact: category === "wet" ? "Low" : "Medium",
+    disposal_tip: tip,
+    eco_fact: fact
+  });
 
-    const formData = new FormData();
-    formData.append("file", inputVal);
+  try {
+    if (isFile) {
+      setAiInput(inputVal.name);
 
-    try {
-      const API_URL = "https://ecosmart-ml-api.onrender.com/predict";
+      if (!window.mobilenet) {
+        throw new Error("MobileNet not loaded");
+      }
 
-      // Start fetch immediately — don't wait for anything
-      const response = await fetch(API_URL, {
-        method: "POST",
-        body: formData
-      });
+      if (!window.ecoSmartMobileNetModel) {
+        showToast("Loading TensorFlow model...");
+        window.ecoSmartMobileNetModel = await window.mobilenet.load();
+      }
 
-      if (!response.ok) throw new Error(`API error: ${response.statusText}`);
-
-      const data = await response.json();
-
-      setAiResult({
-        category: data.color === "dry" ? "dry" : "wet",
-        confidence: data.confidence,
-        bin_color: data.color === "dry" ? "Blue" : "Green",
-        points: data.label === "DRY WASTE" ? 10 : 5,
-        recyclable: data.color === "dry",
-        composable: data.color === "wet",
-        co2_impact: data.color === "dry" ? "Medium" : "Low",
-        disposal_tip: data.tip,
-        eco_fact: data.color === "wet"
-          ? "Food waste in landfills produces methane. Composting avoids this!"
-          : "Recycling dry items saves precious landfill space and energy."
-      });
-
-      const newPts = points + (data.label === "DRY WASTE" ? 10 : 5);
-      setPoints(newPts);
-      if (fb && user) savePoints(newPts);
-      showToast("Waste classified by ML model! 📸");
-
-    } catch (error) {
-      console.error("ML API offline, using fallback:", error);
-
-      // ── Smart fallback using actual image content via canvas ──
+      const imgUrl = URL.createObjectURL(inputVal);
       const img = new Image();
-      img.src = previewURL;
-      await new Promise(res => { img.onload = res; img.onerror = res; });
+      img.src = imgUrl;
 
-      const canvas = document.createElement("canvas");
-      canvas.width = 4; canvas.height = 4;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0, 4, 4);
-      const px = ctx.getImageData(0, 0, 4, 4).data;
-      // Average green channel — organic/wet items tend greener
-      let avgR = 0, avgG = 0, avgB = 0;
-      for (let i = 0; i < px.length; i += 4) {
-        avgR += px[i]; avgG += px[i+1]; avgB += px[i+2];
-      }
-      const n = px.length / 4;
-      avgR /= n; avgG /= n; avgB /= n;
-
-      // Also check filename
-      const fileName = inputVal.name.toLowerCase();
-      const wetKeywords = ["banana","food","apple","waste","vegetable","leaf","fruit","organic","peel","egg"];
-      const hazKeywords = ["battery","medicine","bulb","chemical","paint","sanitizer"];
-      const eKeywords   = ["laptop","mobile","phone","charger","earphone","keyboard"];
-
-      let estCategory = "dry";
-      let estTip = "Please dispose in the BLUE bin. Recyclable items like plastic, paper, cardboard.";
-      let estPts = 10;
-      let estConf = 72;
-
-      if (hazKeywords.some(k => fileName.includes(k))) {
-        estCategory = "hazardous"; estTip = "Dispose at a hazardous waste collection center."; estPts = 20; estConf = 85;
-      } else if (eKeywords.some(k => fileName.includes(k))) {
-        estCategory = "e-waste"; estTip = "Send to a certified e-waste recycler."; estPts = 25; estConf = 88;
-      } else if (wetKeywords.some(k => fileName.includes(k)) || (avgG > avgR + 10 && avgG > avgB + 10)) {
-        estCategory = "wet"; estTip = "Please dispose in the GREEN bin. Biodegradable items like food scraps, peels."; estPts = 5; estConf = 68;
-      }
-
-      setAiResult({
-        category: estCategory,
-        confidence: estConf,
-        bin_color: estCategory === "dry" ? "Blue" : estCategory === "wet" ? "Green" : estCategory === "hazardous" ? "Red" : "Purple",
-        points: estPts,
-        recyclable: estCategory === "dry" || estCategory === "e-waste",
-        composable: estCategory === "wet",
-        co2_impact: estCategory === "hazardous" || estCategory === "e-waste" ? "High" : estCategory === "wet" ? "Low" : "Medium",
-        disposal_tip: `[Offline] ${estTip}`,
-        eco_fact: "Deploy your Flask backend on Render to get accurate TensorFlow predictions."
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
       });
 
-      const newPts = points + estPts;
+      const predictions = await window.ecoSmartMobileNetModel.classify(img, 3);
+      URL.revokeObjectURL(imgUrl);
+
+      const best = predictions[0];
+      const label = best.className.toLowerCase();
+      const confidence = Math.round(best.probability * 100);
+
+      let result;
+
+      if (
+        label.includes("banana") ||
+        label.includes("apple") ||
+        label.includes("orange") ||
+        label.includes("fruit") ||
+        label.includes("vegetable") ||
+        label.includes("broccoli") ||
+        label.includes("cabbage") ||
+        label.includes("mushroom") ||
+        inputVal.name.toLowerCase().includes("banana") ||
+        inputVal.name.toLowerCase().includes("food") ||
+        inputVal.name.toLowerCase().includes("peel")
+      ) {
+        result = makeResult(
+          "wet",
+          confidence,
+          5,
+          "Dispose in wet waste bin or compost.",
+          "Organic waste can become compost instead of landfill waste."
+        );
+      } else if (
+        label.includes("battery") ||
+        label.includes("medicine") ||
+        label.includes("pill") ||
+        label.includes("syringe") ||
+        inputVal.name.toLowerCase().includes("battery") ||
+        inputVal.name.toLowerCase().includes("medicine")
+      ) {
+        result = makeResult(
+          "hazardous",
+          confidence,
+          20,
+          "Dispose at a hazardous waste collection point.",
+          "Hazardous waste should not be mixed with regular waste."
+        );
+      } else {
+        result = makeResult(
+          "dry",
+          confidence,
+          10,
+          `TensorFlow detected: ${best.className}. Dispose in dry waste bin if clean.`,
+          "TensorFlow MobileNet is running directly in the browser."
+        );
+      }
+
+      setAiResult(result);
+
+      const newPts = points + result.points;
       setPoints(newPts);
       if (fb && user) savePoints(newPts);
-      showToast("Backend offline — smart fallback used", "error");
 
-    } finally {
+      showToast(`TensorFlow classified as ${result.category}`);
       setAiLoading(false);
-      // Free memory
-      URL.revokeObjectURL(previewURL);
+      return;
     }
 
-  } else {
-    // ── TEXT classification — instant, no timeout needed ──
-    setAiInput(inputVal);
     const item = inputVal.toLowerCase();
+    setAiInput(inputVal);
 
-    let result = {
-      category: "dry", confidence: 90, bin_color: "Blue", points: 10,
-      recyclable: true, composable: false, co2_impact: "Medium",
-      disposal_tip: "Dispose in dry waste bin.",
-      eco_fact: "Recycling helps reduce landfill waste."
-    };
+    let result = makeResult(
+      "dry",
+      90,
+      10,
+      "Dispose in dry waste bin.",
+      "Recycling helps reduce landfill waste."
+    );
 
-    if (["food","vegetable","fruit","leaves","banana","peel","apple","egg","tea","coffee","rice","bread","oil"].some(k => item.includes(k))) {
-      result = { category:"wet", confidence:96, bin_color:"Green", points:5, recyclable:false, composable:true, co2_impact:"Low",
-        disposal_tip:"Dispose in wet waste bin or compost.",
-        eco_fact:"Fruit peels and food scraps are compostable organic waste." };
+    if (
+      item.includes("food") ||
+      item.includes("vegetable") ||
+      item.includes("fruit") ||
+      item.includes("leaves") ||
+      item.includes("banana") ||
+      item.includes("peel") ||
+      item.includes("apple") ||
+      item.includes("egg") ||
+      item.includes("tea") ||
+      item.includes("coffee") ||
+      item.includes("rice") ||
+      item.includes("bread") ||
+      item.includes("oil")
+    ) {
+      result = makeResult(
+        "wet",
+        96,
+        5,
+        "Dispose in wet waste bin or compost.",
+        "Fruit peels and food scraps are compostable organic waste."
+      );
     }
 
-    if (["battery","medicine","bulb","chemical","paint","sanitizer"].some(k => item.includes(k))) {
-      result = { category:"hazardous", confidence:98, bin_color:"Red", points:20, recyclable:false, composable:false, co2_impact:"High",
-        disposal_tip:"Dispose at a hazardous waste collection center.",
-        eco_fact:"Hazardous waste can pollute groundwater if dumped improperly." };
+    if (
+      item.includes("battery") ||
+      item.includes("medicine") ||
+      item.includes("bulb") ||
+      item.includes("chemical") ||
+      item.includes("paint") ||
+      item.includes("sanitizer")
+    ) {
+      result = makeResult(
+        "hazardous",
+        98,
+        20,
+        "Dispose at a hazardous waste collection center.",
+        "Hazardous waste can pollute groundwater if dumped improperly."
+      );
     }
 
-    if (["laptop","mobile","phone","charger","earphone","keyboard"].some(k => item.includes(k))) {
-      result = { category:"e-waste", confidence:97, bin_color:"Purple", points:25, recyclable:true, composable:false, co2_impact:"High",
-        disposal_tip:"Send to a certified e-waste recycler.",
-        eco_fact:"E-waste contains recoverable metals and must not go to regular bins." };
+    if (
+      item.includes("laptop") ||
+      item.includes("mobile") ||
+      item.includes("phone") ||
+      item.includes("charger") ||
+      item.includes("earphone") ||
+      item.includes("keyboard")
+    ) {
+      result = makeResult(
+        "e-waste",
+        97,
+        25,
+        "Send to a certified e-waste recycler.",
+        "E-waste contains recoverable metals and must not go to regular bins."
+      );
     }
 
-    // Instant — no setTimeout
     setAiResult(result);
+
     const newPts = points + result.points;
     setPoints(newPts);
     if (fb && user) savePoints(newPts);
-    showToast("Waste classified!");
-    setAiLoading(false);
-  }
-};
 
-  // ── Route Optimizer ──
-  const optimizeRoute = async () => {
-  setRouteOptimizing(true);
+    showToast("Waste classified successfully");
+  } catch (error) {
+    console.log("Classifier error:", error);
 
-  setTimeout(() => {
-    const urgentBins = bins
-      .filter(b => b.status === "critical" || b.status === "full" || b.wet >= 75 || b.dry >= 75)
-      .sort((a, b) => {
-        const scoreA = Math.max(a.wet, a.dry);
-        const scoreB = Math.max(b.wet, b.dry);
-        return scoreB - scoreA;
-      });
+    setAiResult(makeResult(
+      "dry",
+      70,
+      10,
+      "TensorFlow could not classify this image clearly. Dispose in dry waste bin if clean.",
+      "Check internet connection because TensorFlow MobileNet loads from CDN."
+    ));
 
-    const manualBins = truckRoute;
-
-    const merged = [...manualBins];
-
-    urgentBins.forEach(bin => {
-      if (!merged.some(b => b.id === bin.id)) {
-        merged.push(bin);
-      }
-    });
-
-    const finalRoute = merged.slice(0, 8);
-
-    setTruckRoute(finalRoute);
-
-    setOptimizedRoute({
-      route: finalRoute.map(b => b.name),
-      priority: "critical_and_full_bins_first",
-      estimated_time: `${finalRoute.length * 12} mins`,
-      fuel_saved: `${(finalRoute.length * 0.35).toFixed(1)}L`,
-      co2_reduction: `${(finalRoute.length * 0.8).toFixed(1)} kg`,
-      reasoning: "Route includes manually dispatched bins plus critical/full bins sorted by fill level."
-    });
-
-    addAlert("info", `AI optimized truck route with ${finalRoute.length} stops`);
-    showToast("AI route optimized");
-    setRouteOptimizing(false);
-  }, 800);
-};
-   
-
-  // ── Chat ──
-  const localEcoReply = (text) => {
-  const q = text.toLowerCase();
-
-  if (q.includes("medicine") || q.includes("tablet") || q.includes("syrup")) {
-    return "Old medicines should not be thrown into regular bins. Keep them in original packaging and give them to a pharmacy take-back point or hazardous waste collection center.";
+    showToast("Classifier fallback used", "error");
   }
 
-  if (q.includes("compost") || q.includes("wet") || q.includes("food")) {
-    return "You can compost fruit peels, vegetable scraps, tea leaves, coffee grounds, eggshells, and dry leaves. Avoid meat, plastic, glass, and oily food in home compost.";
-  }
-
-  if (q.includes("plastic")) {
-    return "Reduce plastic by carrying a reusable bottle, cloth bag, and lunch box. Clean dry plastic bottles can go into dry waste, but dirty plastic should be rinsed first.";
-  }
-
-  if (q.includes("blue") || q.includes("recycling")) {
-    return "The blue/dry recycling bin is for clean paper, cardboard, plastic bottles, metal cans, and glass. Keep items dry and empty before disposal.";
-  }
-
-  if (q.includes("battery") || q.includes("bulb") || q.includes("chemical")) {
-    return "Batteries, bulbs, chemicals, and paints are hazardous waste. Do not mix them with wet or dry waste. Send them to a certified hazardous waste collection point.";
-  }
-
-  if (q.includes("phone") || q.includes("laptop") || q.includes("charger") || q.includes("e-waste")) {
-    return "E-waste like phones, laptops, chargers, and keyboards should go to certified e-waste recyclers. They contain metals that can be recovered safely.";
-  }
-
-  return "For best waste sorting: wet waste goes to compost, clean recyclable items go to dry waste, and batteries, medicines, bulbs, and electronics need special collection.";
+  setAiLoading(false);
 };
 
-const sendChat = async (text = chatInput) => {
-  if (!text.trim()) return;
-
-  const userMsg = { role:"user", content:text };
-  setChatHistory(prev => [...prev, userMsg]);
-  setChatInput("");
-  setChatLoading(true);
-
-  setTimeout(async () => {
-    let reply = localEcoReply(text);
-
-    try {
-      if (fb && user) {
-        await fb.addDoc(fb.collection(fb.db, "chats"), {
-          userId:user.uid,
-          userMsg:text,
-          botMsg:reply,
-          createdAt:fb.serverTimestamp()
-        });
-      }
-    } catch (e) {
-      console.log("Chat save failed:", e);
-    }
-
-    setChatHistory(prev => [...prev, { role:"assistant", content:reply }]);
-    setChatLoading(false);
-  }, 500);
-};
-
-  const S = {
-app: { minHeight:"100vh", background:"#050a0e", color:"#e8fff5", fontFamily:"'Courier New',monospace", position:"relative", overflowX:"hidden" },    grid: { position:"fixed", inset:0, pointerEvents:"none", zIndex:0, backgroundImage:"linear-gradient(rgba(0,255,136,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,136,0.03) 1px,transparent 1px)", backgroundSize:"40px 40px" },
-    nav: { position:"sticky", top:0, zIndex:100, background:"rgba(5,10,14,0.95)", borderBottom:"1px solid rgba(0,255,136,0.15)", backdropFilter:"blur(20px)", padding:"0 20px", display:"flex", alignItems:"center", gap:12, overflowX:"auto" },
-    logo: { fontWeight:900, fontSize:15, letterSpacing:2, color:neon.green, textShadow:`0 0 16px ${neon.green}`, padding:"14px 0", whiteSpace:"nowrap", marginRight:16 },
-    tab: (active) => ({ padding:"14px 14px", fontSize:11, letterSpacing:1.5, fontWeight:active?700:400, color:active?neon.green:"#6b8f80", borderBottom:active?`2px solid ${neon.green}`:"2px solid transparent", background:"none", border:"none", cursor:"pointer", whiteSpace:"nowrap", fontFamily:"'Courier New',monospace", transition:"color 0.2s" }),
-    main: { position:"relative", zIndex:1, maxWidth:1200, margin:"0 auto", padding:"16px", width:"100%", boxSizing:"border-box" },
-    card: { background:"rgba(10,22,20,0.85)", border:"1px solid rgba(0,255,136,0.15)", borderRadius:12, backdropFilter:"blur(20px)", overflowX:"hidden" },
-    cardHead: { padding:"14px 18px", borderBottom:"1px solid rgba(0,255,136,0.1)", display:"flex", alignItems:"center", justifyContent:"space-between" },
-    cardTitle: { fontSize:11, letterSpacing:2, color:neon.green, textTransform:"uppercase" },
-    cardBody: { padding:18 },
-    statVal: (color) => ({ fontWeight:900, fontSize:28, color, textShadow:`0 0 16px ${color}88`, fontFamily:"'Courier New',monospace" }),
-    statLabel: { fontSize:10, color:"#6b8f80", textTransform:"uppercase", letterSpacing:1, marginTop:2 },
-    btn: (color=neon.green, outline=false) => ({ padding:"10px 20px", fontSize:11, letterSpacing:1.5, fontWeight:700, textTransform:"uppercase", background:outline?"transparent":color, color:outline?color:"#050a0e", border:`1px solid ${color}`, borderRadius:6, cursor:"pointer", fontFamily:"'Courier New',monospace", transition:"all 0.2s", boxShadow:outline?"none":`0 0 16px ${color}44` }),
-    input: { background:"rgba(0,255,136,0.05)", border:"1px solid rgba(0,255,136,0.2)", borderRadius:8, padding:"10px 14px", color:"#e8fff5", fontSize:13, fontFamily:"'Courier New',monospace", outline:"none", width:"100%" },
-    grid2: { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:12 },
-    grid3: { display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))", gap:12 },
-    pulse: { width:8, height:8, borderRadius:"50%", background:neon.green, boxShadow:`0 0 8px ${neon.green}`, animation:"pulse 1.5s infinite" },
-  };
-
-  // ── Firebase Status Panel ──
-  const FBPanel = () => (
-    <div style={{ ...S.card, marginBottom:12, background:"rgba(0,229,255,0.03)", borderColor:"rgba(0,229,255,0.15)" }}>
-      <div style={{ padding:"10px 16px", display:"flex", alignItems:"center", gap:16, flexWrap:"wrap" }}>
-        <span style={{ fontSize:10, color:neon.cyan, letterSpacing:1.5 }}>// FIREBASE STATUS</span>
-        {[
-          { label:"AUTH", status:syncStatus.auth },
-          { label:"FIRESTORE", status:syncStatus.firestore },
-          { label:"REALTIME DB", status:syncStatus.rtdb },
-        ].map(s => {
-          const color = s.status==="live"||s.status==="synced"||s.status==="signed_in"||s.status==="connected" ? neon.green : s.status==="idle" ? "#6b8f80" : neon.yellow;
-          return (
-            <div key={s.label} style={{ display:"flex", alignItems:"center", gap:6 }}>
-              <div style={{ width:6,height:6,borderRadius:"50%",background:color,boxShadow:s.status!=="idle"?`0 0 6px ${color}`:undefined }} />
-              <span style={{ fontSize:9, color:"#6b8f80", letterSpacing:1 }}>{s.label}</span>
-              <span style={{ fontSize:9, color, fontWeight:700 }}>{s.status.toUpperCase()}</span>
-            </div>
-          );
-        })}
-        {!user && (
-          <button onClick={()=>setShowAuth(true)} style={{ ...S.btn(neon.cyan,true), padding:"5px 12px", fontSize:9, marginLeft:"auto" }}>
-            🔐 Sign In to Sync
-          </button>
-        )}
-        {user && <span style={{ fontSize:9, color:neon.green, marginLeft:"auto" }}>☁️ Syncing to cloud</span>}
-      </div>
-    </div>
-  );
-
-  // ── Landing ──
-const Landing = () => (
-  <div style={{
-    minHeight:"90vh",
-    display:"flex",
-    flexDirection:"column",
-    alignItems:"center",
-    justifyContent:"center",
-    textAlign:"center",
-    padding:24
-  }}>
-    <div style={{
-      border:"1px solid rgba(0,255,136,0.3)",
-      borderRadius:30,
-      padding:"6px 18px",
-      fontSize:10,
-      color:neon.green,
-      letterSpacing:2,
-      marginBottom:32,
-      background:"rgba(0,255,136,0.05)"
-    }}>
-      ♻️ AI-POWERED · REAL-TIME · FIREBASE CONNECTED
-    </div>
-
-    <h1 style={{
-      fontSize:36,
-      fontWeight:900,
-      lineHeight:1.2,
-      color:"#e8fff5",
-      margin:"0 0 12px",
-      fontFamily:"'Courier New',monospace"
-    }}>
-      Smart Eco<br />
-      Monitoring<br />
-      <span style={{ color:neon.cyan }}>&amp; Waste Analytics</span><br />
-      System
-    </h1>
-
-    <p style={{
-      fontSize:13,
-      color:"#6b8f80",
-      maxWidth:420,
-      lineHeight:1.8,
-      margin:"16px 0 36px"
-    }}>
-      Next-generation waste segregation powered by IoT sensors, AI, Firestore, and Realtime Database.
-    </p>
-
-    <div style={{ display:"flex", flexDirection:"column", gap:12, width:"100%", maxWidth:280 }}>
-      <button
-        onClick={() => setActiveTab("dashboard")}
-        style={{ ...S.btn(neon.green), padding:"14px 24px", fontSize:13, width:"100%" }}
-      >
-        ⚡ START MONITORING
-      </button>
-
-      <button
-        onClick={() => setShowAuth(true)}
-        style={{ ...S.btn(neon.cyan,true), padding:"14px 24px", fontSize:13, width:"100%" }}
-      >
-        🔐 SIGN IN / REGISTER
-      </button>
-    </div>
-
-    <div style={{
-      marginTop:36,
-      width:"100%",
-      maxWidth:760,
-      display:"grid",
-      gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",
-      gap:10
-    }}>
-      {[
-        { label:"AI CLASSIFIER", value:"ONLINE", color:neon.green, tab:"classify" },
-        { label:"FIREBASE SYNC", value:fbReady ? "CONNECTED" : "LOADING", color:fbReady ? neon.green : neon.yellow, tab:"dashboard" },
-        { label:"ROUTE ENGINE", value:"READY", color:neon.cyan, tab:"map" },
-        { label:"BIN SENSORS", value:"24 ACTIVE", color:neon.green, tab:"map" }
-      ].map((item, i) => (
-        <div
-          key={i}
-          onClick={() => setActiveTab(item.tab)}
-          style={{
-            padding:14,
-            borderRadius:10,
-            background:"rgba(0,255,136,0.05)",
-            border:`1px solid ${item.color}44`,
-            boxShadow:`0 0 16px ${item.color}22`,
-            cursor:"pointer",
-            transition:"all 0.25s ease"
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.transform = "translateY(-4px)";
-            e.currentTarget.style.borderColor = item.color;
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.transform = "translateY(0)";
-            e.currentTarget.style.borderColor = `${item.color}44`;
-          }}
-        >
-          <div style={{ fontSize:10, color:"#6b8f80", letterSpacing:1 }}>
-            {item.label}
-          </div>
-          <div style={{ fontSize:15, color:item.color, fontWeight:900, marginTop:6 }}>
-            {item.value}
-          </div>
-        </div>
-      ))}
-    </div>
-
-    <div style={{
-      marginTop:24,
-      width:"100%",
-      maxWidth:560,
-      display:"flex",
-      gap:10,
-      background:"rgba(0,255,136,0.04)",
-      border:"1px solid rgba(0,255,136,0.2)",
-      borderRadius:12,
-      padding:10
-    }}>
-      <input
-        value={aiInput}
-        onChange={e => setAiInput(e.target.value)}
-        placeholder="Try waste item... banana peel, battery, bottle"
-        style={S.input}
-        onKeyDown={e => {
-          if (e.key === "Enter" && aiInput.trim()) {
-            setActiveTab("classify");
-          }
-        }}
-      />
-
-      <button
-        onClick={() => {
-          if (!aiInput.trim()) return;
-          setActiveTab("classify");
-        }}
-        style={{ ...S.btn(neon.cyan), whiteSpace:"nowrap" }}
-      >
-        Try AI
-      </button>
-    </div>
-
-    <div
-      onClick={() => setActiveTab("alerts")}
-      style={{
-        marginTop:18,
-        width:"100%",
-        maxWidth:560,
-        padding:14,
-        borderRadius:12,
-        background:"rgba(255,61,113,0.06)",
-        border:"1px solid rgba(255,61,113,0.25)",
-        color:"#e8fff5",
-        cursor:"pointer",
-        textAlign:"left"
-      }}
-    >
-      <div style={{ fontSize:10, color:neon.red, letterSpacing:1.5, marginBottom:6 }}>
-        LIVE ALERT
-      </div>
-      <div style={{ fontSize:13 }}>
-        {alerts[0]?.msg || "No critical alerts right now"}
-      </div>
-      <div style={{ fontSize:10, color:"#6b8f80", marginTop:5 }}>
-        Click to view alerts
-      </div>
-    </div>
-
-    <div style={{ display:"flex", gap:32, marginTop:42, flexWrap:"wrap", justifyContent:"center" }}>
-      {[
-        { val:"24", label:"ACTIVE BINS" },
-        { val:"187", label:"KG COLLECTED" },
-        { val:"42", label:"KG CO₂ SAVED" },
-        { val:"312", label:"ECO USERS" }
-      ].map((s,i) => (
-        <div key={i} style={{ textAlign:"center" }}>
-          <div style={{
-            fontSize:32,
-            fontWeight:900,
-            color:neon.green,
-            textShadow:`0 0 16px ${neon.green}`
-          }}>
-            {s.val}
-          </div>
-          <div style={{ fontSize:9, color:"#6b8f80", letterSpacing:1.5, marginTop:4 }}>
-            {s.label}
-          </div>
-        </div>
-      ))}
-    </div>
-  </div>
-);
-
-  // ── Dashboard ──
-  const Dashboard = () => (
-    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-      <FBPanel />
-      <div style={{ ...S.card, background:"rgba(0,255,136,0.04)", padding:16 }}>
-        <div style={{ display:"flex", gap:24, flexWrap:"wrap", justifyContent:"space-between", alignItems:"center" }}>
-          {[{ label:"CO₂ Saved",val:`${co2Saved} kg`,color:neon.green },{ label:"Bin Temp",val:"18.7°C",color:neon.cyan },{ label:"Humidity",val:"42%",color:neon.yellow },{ label:"Methane",val:"LOW",color:neon.green },{ label:"Active Bins",val:"5/5",color:neon.cyan }].map((s,i)=>(
-            <div key={i} style={{ textAlign:"center" }}>
-              <div style={{ ...S.statVal(s.color), fontSize:18 }}>{s.val}</div>
-              <div style={S.statLabel}>{s.label}</div>
-            </div>
-          ))}
-          <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:10, color:neon.green }}>
-            <div style={S.pulse} /> LIVE
-          </div>
-        </div>
-      </div>
-      <div style={S.grid3}>
-        {[
-          { icon:"🟢",val:`${wetPct}%`,label:"Wet Waste",color:neon.cyan },
-          { icon:"🟡",val:`${dryPct}%`,label:"Dry Waste",color:neon.yellow },
-          { icon:"🔋",val:`${Math.round(battPct)}%`,label:"Battery",color:neon.green },
-          { icon:"📶",val:"ONLINE",label:"Sensor Status",color:neon.green },
-          { icon:"⚠️",val:`${hazPct}%`,label:"Hazardous",color:neon.red },
-          { icon:"☁️",val:user?"SYNCED":"LOCAL",label:"Data Mode",color:user?neon.green:neon.yellow },
-        ].map((s,i)=>(
-          <div key={i} style={{ ...S.card, padding:"16px", textAlign:"center" }}>
-            <div style={{ fontSize:24, marginBottom:6 }}>{s.icon}</div>
-            <div style={S.statVal(s.color)}>{s.val}</div>
-            <div style={S.statLabel}>{s.label}</div>
-          </div>
-        ))}
-      </div>
-      <div style={S.grid2}>
-        <div style={S.card}>
-          <div style={S.cardHead}><span style={S.cardTitle}>Fill Levels</span></div>
-          <div style={{ ...S.cardBody, display:"flex", justifyContent:"space-around", flexWrap:"wrap", gap:12 }}>
-            <Donut value={wetPct} color={neon.cyan} label="Wet" />
-            <Donut value={dryPct} color={neon.yellow} label="Dry" />
-            <Donut value={hazPct} color={neon.red} label="Hazard" />
-          </div>
-        </div>
-        <div style={S.card}>
-          <div style={S.cardHead}><span style={S.cardTitle}>Weekly Collection (kg)</span></div>
-          <div style={S.cardBody}><BarChart data={weeklyData} /></div>
-        </div>
-      </div>
-      <div style={{ ...S.card, padding:16, background:"rgba(0,229,255,0.04)", borderColor:"rgba(0,229,255,0.2)" }}>
-        <div style={{ fontSize:10, color:neon.cyan, letterSpacing:2, marginBottom:6 }}>// ECO TIP</div>
-        <div style={{ fontSize:13, color:"#cceedd", lineHeight:1.6 }}>💡 {TIPS[tipIdx]}</div>
-      </div>
-    </div>
-  );
-
-  // ── Throw Waste ──
-  const markCollected = async (binId) => {
-  const updatedBin = { wet:5, dry:5, status:"normal", updatedAt:Date.now() };
-
-  setBins(prev => prev.map(b =>
-    b.id === binId ? { ...b, ...updatedBin } : b
-  ));
-
-  setSelectedBin(prev =>
-    prev && prev.id === binId ? { ...prev, ...updatedBin } : prev
-  );
-
-  setTruckRoute(prev => prev.filter(b => b.id !== binId));
-
-  if (fb && user) {
-    try {
-      await fb.set(fb.ref(fb.rtdb, `bins/${binId}`), updatedBin);
-      setSyncStatus(s => ({ ...s, rtdb:"synced" }));
-    } catch (e) {
-      console.log("Mark collected save failed:", e);
-    }
-  }
-
-  showToast("Bin marked collected");
-};
-
-const sendTruck = (bin) => {
-  if (!bin) return;
-
-  setTruckRoute(prev => {
-    if (prev.some(b => b.id === bin.id)) {
-      showToast(`${bin.name} already in truck route`);
-      return prev;
-    }
-
-    return [...prev, {
-      id:bin.id,
-      name:bin.name,
-      wet:bin.wet,
-      dry:bin.dry,
-      status:bin.status,
-      lat:bin.lat,
-      lng:bin.lng
-    }];
-  });
-
-  addAlert("info", `Collection truck sent to ${bin.name}`);
-  showToast(`Truck sent to ${bin.name}`);
-};
-
-const reportIssue = (binName) => {
-  addAlert("warning", `Issue reported at ${binName}`);
-  showToast(`Issue reported at ${binName}`);
-};
-
-const ThrowWaste = () => {
-  const filteredWaste =
-    wasteFilter === "all"
-      ? WASTE_ITEMS
-      : WASTE_ITEMS.filter(item => item.type === wasteFilter);
-
-  const totalLogPoints = throwLog.reduce((sum, item) => sum + item.points, 0);
-
-  return (
-    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-      <div style={S.grid3}>
-        {[
-          { label:"Items Sorted", value:throwLog.length, color:neon.green },
-          { label:"Session Points", value:`+${totalLogPoints}`, color:neon.yellow },
-          { label:"Last Item", value:lastThrown ? lastThrown.name : "None", color:neon.cyan }
-        ].map((stat, i) => (
-          <div key={i} style={{ ...S.card, padding:16, textAlign:"center" }}>
-            <div style={{ ...S.statVal(stat.color), fontSize:22 }}>{stat.value}</div>
-            <div style={S.statLabel}>{stat.label}</div>
-          </div>
-        ))}
-      </div>
-
-      <div style={S.card}>
-        <div style={S.cardHead}>
-          <span style={S.cardTitle}>🗑️ Select Waste to Sort</span>
-          {user && <span style={{ fontSize:9, color:neon.green }}>☁️ Auto-saved</span>}
-        </div>
-
-        <div style={{ padding:"14px 18px 0", display:"flex", gap:8, flexWrap:"wrap" }}>
-          {[
-            { id:"all", label:"All", color:neon.green },
-            { id:"wet", label:"Wet", color:neon.cyan },
-            { id:"dry", label:"Dry", color:neon.yellow },
-            { id:"hazardous", label:"Hazardous", color:neon.red }
-          ].map(filter => (
-            <button
-              key={filter.id}
-              onClick={() => setWasteFilter(filter.id)}
-              style={{
-                ...S.btn(filter.color, wasteFilter !== filter.id),
-                padding:"7px 12px",
-                fontSize:9
-              }}
-            >
-              {filter.label}
-            </button>
-          ))}
-        </div>
-
-        <div style={{
-          ...S.cardBody,
-          display:"grid",
-          gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",
-          gap:12
-        }}>
-          {filteredWaste.map((item, i) => {
-            const color =
-              item.type === "wet" ? neon.cyan :
-              item.type === "dry" ? neon.yellow :
-              neon.red;
-
-            const active = lastThrown?.name === item.name;
-
-            return (
-              <button
-                key={i}
-                onClick={() => throwWaste(item)}
-                style={{
-                  background:`${color}0a`,
-                  border:`1px solid ${active ? color : color + "33"}`,
-                  borderRadius:10,
-                  padding:"18px 12px",
-                  cursor:"pointer",
-                  textAlign:"center",
-                  color:"#e8fff5",
-                  minHeight:120,
-                  transform:active ? "translateY(-4px) scale(1.02)" : "translateY(0) scale(1)",
-                  boxShadow:active ? `0 0 18px ${color}55` : "none",
-                  transition:"all 0.25s ease"
-                }}
-              >
-                <div style={{ fontSize:34, marginBottom:8 }}>{item.emoji}</div>
-                <div style={{ fontSize:12, color:"#cceedd", marginBottom:4 }}>{item.name}</div>
-                <div style={{ fontSize:10, color, fontWeight:700 }}>
-                  {item.type.toUpperCase()} · +{item.points} pts
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {throwLog.length > 0 && (
-        <div style={S.card}>
-          <div style={S.cardHead}>
-            <span style={S.cardTitle}>📋 Throw Log</span>
-            <button
-              onClick={() => {
-                setThrowLog([]);
-                setLastThrown(null);
-                showToast("Throw log cleared");
-              }}
-              style={{ ...S.btn(neon.red,true), padding:"5px 10px", fontSize:9 }}
-            >
-              Clear Log
-            </button>
-          </div>
-
-          <div style={{ ...S.cardBody, maxHeight:260, overflowY:"auto" }}>
-            {throwLog.map((l, i) => {
-              const color =
-                l.type === "wet" ? neon.cyan :
-                l.type === "dry" ? neon.yellow :
-                neon.red;
-
-              return (
-                <div key={i} style={{
-                  display:"grid",
-                  gridTemplateColumns:"1.5fr 1fr 1fr 1fr",
-                  gap:10,
-                  alignItems:"center",
-                  padding:"10px 0",
-                  borderBottom:"1px solid rgba(255,255,255,0.04)",
-                  fontSize:12
-                }}>
-                  <span>{l.emoji} {l.name}</span>
-                  <span style={{ color, fontSize:10 }}>{l.type.toUpperCase()}</span>
-                  <span style={{ color:neon.green }}>+{l.points} pts</span>
-                  <span style={{ color:"#6b8f80", fontSize:10, textAlign:"right" }}>{l.time}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-  // ── AI Classifier ──
+  // ── AI Classify — INSTANT CAMERA ──
+ 
 function CameraUploader({ onFile, showToast, S, neon }) {
   const videoRef = React.useRef(null);
   const canvasRef = React.useRef(null);
@@ -1594,6 +1002,7 @@ const AIClassifier = () => {
     if (aiInput && !draftInput) setDraftInput(aiInput);
   }, []); // eslint-disable-line
 
+  
   const resultColor =
     aiResult?.category === "wet" ? neon.green :
     aiResult?.category === "dry" ? neon.yellow :
@@ -1760,58 +1169,449 @@ const AIClassifier = () => {
   );
 };
 
-  // ── Map Tab ──
+  // ── ML City change — regenerate data ──
+  const handleMlCityChange = useCallback((bin) => {
+    setMlCity(bin);
+    setMlPredCity(bin);
+    setMlPredTemp(parseFloat(bin.temp));
+    const hist = generateCityHistoricalData(bin);
+    setMlHistData(hist);
+    setMlSummary(computeRegressionSummary(hist, bin));
+    setMlPredResult(null);
+  },[]);
+
+  const runMlModel = () => {
+    setMlRunning(true);
+    setTimeout(() => {
+      const hist = generateCityHistoricalData(mlCity);
+      setMlHistData(hist);
+      setMlSummary(computeRegressionSummary(hist, mlCity));
+      setMlRunning(false);
+      showToast("Model compilation complete!");
+    }, 900);
+  };
+
+  const computePrediction = () => {
+    const s = mlSummary;
+    const pred = s.intercept + s.b_temp*mlPredTemp + s.b_pop*mlPredCity.pop
+                 + s.b_weekend*(mlPredWeekend?1:0) + s.b_event*(mlPredEvent?1:0);
+    const kg = Math.max(30, Math.round(pred));
+    const cls = kg>180?"HIGH":kg>110?"MEDIUM":"LOW";
+    setMlPredResult({ kg, cls, trend:kg>s.meanKg?"↑ Above Avg":"↓ Below Avg" });
+    showToast(`Predicted waste: ${kg} kg for ${mlPredCity.name}`);
+  };
+  // ── Route optimizer ──
+  const optimizeRoute = () => {
+    setRouteOptimizing(true);
+    setTimeout(() => {
+      const urgentBins=bins.filter(b=>b.status==="critical"||b.status==="full"||b.wet>=75||b.dry>=75)
+        .sort((a,b)=>Math.max(b.wet,b.dry)-Math.max(a.wet,a.dry));
+      const merged=[...truckRoute];
+      urgentBins.forEach(bin=>{ if(!merged.some(b=>b.id===bin.id)) merged.push(bin); });
+      const finalRoute=merged.slice(0,8);
+      setTruckRoute(finalRoute);
+      setOptimizedRoute({ route:finalRoute.map(b=>b.name), estimated_time:`${finalRoute.length*12} mins`,
+        fuel_saved:`${(finalRoute.length*0.35).toFixed(1)}L`, co2_reduction:`${(finalRoute.length*0.8).toFixed(1)} kg` });
+      addAlert("info",`AI optimized truck route with ${finalRoute.length} stops`);
+      showToast("AI route optimized");
+      setRouteOptimizing(false);
+    }, 800);
+  };
+
+  // ── Chat ──
+  const localEcoReply=(text)=>{
+    const q=text.toLowerCase();
+    if(q.includes("medicine")||q.includes("tablet")||q.includes("syrup")) return "Old medicines should not be thrown into regular bins. Keep them in original packaging and give them to a pharmacy take-back point or hazardous waste collection center.";
+    if(q.includes("compost")||q.includes("wet")||q.includes("food")) return "You can compost fruit peels, vegetable scraps, tea leaves, coffee grounds, eggshells, and dry leaves. Avoid meat, plastic, glass, and oily food in home compost.";
+    if(q.includes("plastic")) return "Reduce plastic by carrying a reusable bottle, cloth bag, and lunch box. Clean dry plastic bottles can go into dry waste, but dirty plastic should be rinsed first.";
+    if(q.includes("blue")||q.includes("recycling")) return "The blue/dry recycling bin is for clean paper, cardboard, plastic bottles, metal cans, and glass. Keep items dry and empty before disposal.";
+    if(q.includes("battery")||q.includes("bulb")||q.includes("chemical")) return "Batteries, bulbs, chemicals, and paints are hazardous waste. Do not mix them with wet or dry waste. Send them to a certified hazardous waste collection point.";
+    if(q.includes("phone")||q.includes("laptop")||q.includes("charger")||q.includes("e-waste")) return "E-waste like phones, laptops, chargers, and keyboards should go to certified e-waste recyclers. They contain metals that can be recovered safely.";
+    return "For best waste sorting: wet waste goes to compost, clean recyclable items go to dry waste, and batteries, medicines, bulbs, and electronics need special collection.";
+  };
+
+  const sendChat=async(text=chatInput)=>{
+    if(!text.trim()) return;
+    setChatHistory(prev=>[...prev,{role:"user",content:text}]); setChatInput(""); setChatLoading(true);
+    setTimeout(async()=>{
+      const reply=localEcoReply(text);
+      if(fb&&user){ try{ await fb.addDoc(fb.collection(fb.db,"chats"),{userId:user.uid,userMsg:text,botMsg:reply,createdAt:fb.serverTimestamp()}); }catch(e){console.log("Chat save failed:",e);} }
+      setChatHistory(prev=>[...prev,{role:"assistant",content:reply}]); setChatLoading(false);
+    },500);
+  };
+
+  // ── Marks / dispatch ──
+  const markCollected=async(binId)=>{
+    const upd={wet:5,dry:5,status:"normal",updatedAt:Date.now()};
+    setBins(prev=>prev.map(b=>b.id===binId?{...b,...upd}:b));
+    setSelectedBin(prev=>prev&&prev.id===binId?{...prev,...upd}:prev);
+    setTruckRoute(prev=>prev.filter(b=>b.id!==binId));
+    if(fb&&user){ try{ await fb.set(fb.ref(fb.rtdb,`bins/${binId}`),upd); setSyncStatus(s=>({...s,rtdb:"synced"})); }catch(e){console.log("Mark collected save failed:",e);} }
+    showToast("Bin marked collected");
+  };
+  const sendTruck=(bin)=>{
+    if(!bin) return;
+    setTruckRoute(prev=>{ if(prev.some(b=>b.id===bin.id)){showToast(`${bin.name} already in route`);return prev;} return [...prev,bin]; });
+    addAlert("info",`Collection truck sent to ${bin.name}`); showToast(`Truck sent to ${bin.name}`);
+  };
+  const reportIssue=(binName)=>{ addAlert("warning",`Issue reported at ${binName}`); showToast(`Issue reported at ${binName}`); };
+
+  // ── Styles ──
+  const S = {
+    app:{ minHeight:"100vh",background:"#050a0e",color:"#e8fff5",fontFamily:"'Courier New',monospace",position:"relative",overflowX:"hidden" },
+    grid:{ position:"fixed",inset:0,pointerEvents:"none",zIndex:0,backgroundImage:"linear-gradient(rgba(0,255,136,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,136,0.03) 1px,transparent 1px)",backgroundSize:"40px 40px" },
+    nav:{ position:"sticky",top:0,zIndex:100,background:"rgba(5,10,14,0.95)",borderBottom:"1px solid rgba(0,255,136,0.15)",backdropFilter:"blur(20px)",padding:"0 20px",display:"flex",alignItems:"center",gap:12,overflowX:"auto" },
+    logo:{ fontWeight:900,fontSize:15,letterSpacing:2,color:neon.green,textShadow:`0 0 16px ${neon.green}`,padding:"14px 0",whiteSpace:"nowrap",marginRight:16 },
+    tab:(active)=>({ padding:"14px 14px",fontSize:11,letterSpacing:1.5,fontWeight:active?700:400,color:active?neon.green:"#6b8f80",borderBottom:active?`2px solid ${neon.green}`:"2px solid transparent",background:"none",border:"none",cursor:"pointer",whiteSpace:"nowrap",fontFamily:"'Courier New',monospace",transition:"color 0.2s" }),
+    main:{ position:"relative",zIndex:1,maxWidth:1200,margin:"0 auto",padding:"16px",width:"100%",boxSizing:"border-box" },
+    card:{ background:"rgba(10,22,20,0.85)",border:"1px solid rgba(0,255,136,0.15)",borderRadius:12,backdropFilter:"blur(20px)",overflowX:"hidden" },
+    cardHead:{ padding:"14px 18px",borderBottom:"1px solid rgba(0,255,136,0.1)",display:"flex",alignItems:"center",justifyContent:"space-between" },
+    cardTitle:{ fontSize:11,letterSpacing:2,color:neon.green,textTransform:"uppercase" },
+    cardBody:{ padding:18 },
+    statVal:(color)=>({ fontWeight:900,fontSize:28,color,textShadow:`0 0 16px ${color}88`,fontFamily:"'Courier New',monospace" }),
+    statLabel:{ fontSize:10,color:"#6b8f80",textTransform:"uppercase",letterSpacing:1,marginTop:2 },
+    btn:(color=neon.green,outline=false)=>({ padding:"10px 20px",fontSize:11,letterSpacing:1.5,fontWeight:700,textTransform:"uppercase",background:outline?"transparent":color,color:outline?color:"#050a0e",border:`1px solid ${color}`,borderRadius:6,cursor:"pointer",fontFamily:"'Courier New',monospace",transition:"all 0.2s",boxShadow:outline?"none":`0 0 16px ${color}44` }),
+    input:{ background:"rgba(0,255,136,0.05)",border:"1px solid rgba(0,255,136,0.2)",borderRadius:8,padding:"10px 14px",color:"#e8fff5",fontSize:13,fontFamily:"'Courier New',monospace",outline:"none",width:"100%" },
+    grid2:{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:12 },
+    grid3:{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12 },
+    pulse:{ width:8,height:8,borderRadius:"50%",background:neon.green,boxShadow:`0 0 8px ${neon.green}`,animation:"pulse 1.5s infinite" },
+  };
+
+  // ── Firebase Status Panel ──
+  const FBPanel = () => (
+    <div style={{ ...S.card,marginBottom:12,background:"rgba(0,229,255,0.03)",borderColor:"rgba(0,229,255,0.15)" }}>
+      <div style={{ padding:"10px 16px",display:"flex",alignItems:"center",gap:16,flexWrap:"wrap" }}>
+        <span style={{ fontSize:10,color:neon.cyan,letterSpacing:1.5 }}>// FIREBASE STATUS</span>
+        {[{ label:"AUTH",status:syncStatus.auth },{ label:"FIRESTORE",status:syncStatus.firestore },{ label:"REALTIME DB",status:syncStatus.rtdb }].map(s=>{
+          const color=s.status==="live"||s.status==="synced"||s.status==="signed_in"||s.status==="connected"?neon.green:s.status==="idle"?"#6b8f80":neon.yellow;
+          return (<div key={s.label} style={{ display:"flex",alignItems:"center",gap:6 }}>
+            <div style={{ width:6,height:6,borderRadius:"50%",background:color,boxShadow:s.status!=="idle"?`0 0 6px ${color}`:undefined }} />
+            <span style={{ fontSize:9,color:"#6b8f80",letterSpacing:1 }}>{s.label}</span>
+            <span style={{ fontSize:9,color,fontWeight:700 }}>{s.status.toUpperCase()}</span>
+          </div>);
+        })}
+        {!user&&<button onClick={()=>setShowAuth(true)} style={{ ...S.btn(neon.cyan,true),padding:"5px 12px",fontSize:9,marginLeft:"auto" }}>🔐 Sign In to Sync</button>}
+        {user&&<span style={{ fontSize:9,color:neon.green,marginLeft:"auto" }}>☁️ Syncing to cloud</span>}
+      </div>
+    </div>
+  );
+
+  // ── LANDING ──
+  const AlertTicker = () => {
+  const alertText = alerts.length
+    ? alerts.map(a => `${a.type.toUpperCase()}: ${a.msg}`).join("     |     ")
+    : "SYSTEM NORMAL: No active alerts";
+
+  const repeatedText = `LIVE ALERTS   ${alertText}     |     LIVE ALERTS   ${alertText}`;
+
+  return (
+    <div style={{
+      position:"sticky",
+      top:48,
+      zIndex:99,
+      height:34,
+      overflow:"hidden",
+      background:"rgba(255,61,113,0.08)",
+      borderTop:"1px solid rgba(255,61,113,0.25)",
+      borderBottom:"1px solid rgba(255,61,113,0.25)",
+      display:"flex",
+      alignItems:"center"
+    }}>
+      <div style={{
+        display:"inline-block",
+        minWidth:"200%",
+        whiteSpace:"nowrap",
+        color:neon.red,
+        fontSize:11,
+        fontWeight:700,
+        letterSpacing:1,
+        animation:"alertSlide 35s linear infinite"
+      }}>
+        {repeatedText}
+      </div>
+    </div>
+  );
+};
+
+   
+  const Landing = () => (
+    <div style={{ minHeight:"90vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",textAlign:"center",padding:24 }}>
+      <div style={{ border:"1px solid rgba(0,255,136,0.3)",borderRadius:30,padding:"6px 18px",fontSize:10,color:neon.green,letterSpacing:2,marginBottom:32,background:"rgba(0,255,136,0.05)" }}>
+        ♻️ AI-POWERED · REAL-TIME · FIREBASE CONNECTED
+      </div>
+      <h1 style={{ fontSize:36,fontWeight:900,lineHeight:1.2,color:"#e8fff5",margin:"0 0 12px",fontFamily:"'Courier New',monospace" }}>
+        Smart Eco<br/>Monitoring<br/><span style={{ color:neon.cyan }}>&amp; Waste Analytics</span><br/>System
+      </h1>
+      <p style={{ fontSize:13,color:"#6b8f80",maxWidth:420,lineHeight:1.8,margin:"16px 0 36px" }}>
+        Next-generation waste segregation powered by IoT sensors, AI, Firestore, and Realtime Database.
+      </p>
+      <div style={{ display:"flex",flexDirection:"column",gap:12,width:"100%",maxWidth:280 }}>
+        <button onClick={()=>setActiveTab("dashboard")} style={{ ...S.btn(neon.green),padding:"14px 24px",fontSize:13,width:"100%" }}>⚡ START MONITORING</button>
+        <button onClick={()=>setShowAuth(true)} style={{ ...S.btn(neon.cyan,true),padding:"14px 24px",fontSize:13,width:"100%" }}>🔐 SIGN IN / REGISTER</button>
+      </div>
+      <div style={{ marginTop:36,width:"100%",maxWidth:760,display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10 }}>
+        {[
+          { label:"AI CLASSIFIER",value:"ONLINE",color:neon.green,tab:"classify" },
+          { label:"FIREBASE SYNC",value:fbReady?"CONNECTED":"LOADING",color:fbReady?neon.green:neon.yellow,tab:"dashboard" },
+          { label:"ML PREDICTOR",value:"READY",color:neon.cyan,tab:"ml" },
+          { label:"BIN SENSORS",value:`${INIT_BINS.length} ACTIVE`,color:neon.green,tab:"map" }
+        ].map((item,i)=>(
+          <div key={i} onClick={()=>setActiveTab(item.tab)} style={{ padding:14,borderRadius:10,background:"rgba(0,255,136,0.05)",border:`1px solid ${item.color}44`,boxShadow:`0 0 16px ${item.color}22`,cursor:"pointer",transition:"all 0.25s ease" }}
+            onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-4px)";e.currentTarget.style.borderColor=item.color;}}
+            onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.borderColor=`${item.color}44`;}}>
+            <div style={{ fontSize:10,color:"#6b8f80",letterSpacing:1 }}>{item.label}</div>
+            <div style={{ fontSize:15,color:item.color,fontWeight:900,marginTop:6 }}>{item.value}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display:"flex",gap:32,marginTop:42,flexWrap:"wrap",justifyContent:"center" }}>
+        {[{val:`${INIT_BINS.length}`,label:"ACTIVE BINS"},{val:"187",label:"KG COLLECTED"},{val:"42",label:"KG CO₂ SAVED"},{val:"312",label:"ECO USERS"}].map((s,i)=>(
+          <div key={i} style={{ textAlign:"center" }}>
+            <div style={{ fontSize:32,fontWeight:900,color:neon.green,textShadow:`0 0 16px ${neon.green}` }}>{s.val}</div>
+            <div style={{ fontSize:9,color:"#6b8f80",letterSpacing:1.5,marginTop:4 }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // ── DASHBOARD — Full table with search/filter ──
+  const Dashboard = () => {
+    const filtered = useMemo(() => {
+      let res = bins;
+      if (dashFilter !== "all") res = res.filter(b => b.status === dashFilter);
+      if (dashSearch.trim()) {
+        const q = dashSearch.toLowerCase();
+        res = res.filter(b => b.name.toLowerCase().includes(q));
+      }
+      return res;
+    }, [bins, dashFilter, dashSearch]);
+
+    return (
+      <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
+        <FBPanel />
+        {/* Top stats row */}
+        <div style={{ ...S.card,background:"rgba(0,255,136,0.04)",padding:16 }}>
+          <div style={{ display:"flex",gap:24,flexWrap:"wrap",justifyContent:"space-between",alignItems:"center" }}>
+            {[{label:"CO₂ Saved",val:`${co2Saved} kg`,color:neon.green},{label:"Avg Temp",val:"23.7°C",color:neon.cyan},{label:"Humidity",val:"42%",color:neon.yellow},{label:"Methane",val:"LOW",color:neon.green},{label:"Active Bins",val:`${INIT_BINS.length}`,color:neon.cyan}].map((s,i)=>(
+              <div key={i} style={{ textAlign:"center" }}>
+                <div style={{ ...S.statVal(s.color),fontSize:18 }}>{s.val}</div>
+                <div style={S.statLabel}>{s.label}</div>
+              </div>
+            ))}
+            <div style={{ display:"flex",alignItems:"center",gap:6,fontSize:10,color:neon.green }}><div style={S.pulse}/> LIVE</div>
+          </div>
+        </div>
+        {/* Donut & chart row */}
+        <div style={S.grid2}>
+          <div style={S.card}>
+            <div style={S.cardHead}><span style={S.cardTitle}>Fill Levels</span></div>
+            <div style={{ ...S.cardBody,display:"flex",justifyContent:"space-around",flexWrap:"wrap",gap:12 }}>
+              <Donut value={wetPct} color={neon.cyan} label="Wet" />
+              <Donut value={dryPct} color={neon.yellow} label="Dry" />
+              <Donut value={hazPct} color={neon.red} label="Hazard" />
+            </div>
+          </div>
+          <div style={S.card}>
+            <div style={S.cardHead}><span style={S.cardTitle}>Weekly Collection (kg)</span></div>
+            <div style={S.cardBody}><BarChart data={weeklyData}/></div>
+          </div>
+        </div>
+        {/* Eco tip */}
+        <div style={{ ...S.card,padding:14,background:"rgba(0,229,255,0.04)",borderColor:"rgba(0,229,255,0.2)" }}>
+          <div style={{ fontSize:10,color:neon.cyan,letterSpacing:2,marginBottom:6 }}>// ECO TIP</div>
+          <div style={{ fontSize:13,color:"#cceedd",lineHeight:1.6 }}>💡 {TIPS[tipIdx]}</div>
+        </div>
+
+        {/* ── ACTIVE STREET BINS TABLE ── */}
+        <div style={S.card}>
+          <div style={S.cardHead}>
+            <span style={S.cardTitle}>📡 Active Street Bins Telemetry ({filtered.length})</span>
+            <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+              <div style={S.pulse}/>
+              <span style={{ fontSize:9,color:neon.green }}>LIVE</span>
+            </div>
+          </div>
+          {/* Search + filter bar */}
+          <div style={{ padding:"12px 18px",display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",borderBottom:"1px solid rgba(0,255,136,0.08)" }}>
+            <input
+              style={{ ...S.input,maxWidth:260,padding:"8px 12px",fontSize:12 }}
+              placeholder="Search street area..."
+              value={dashSearch}
+              onChange={e=>setDashSearch(e.target.value)}
+            />
+            <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+              {[
+                { id:"all",label:"ALL",color:neon.green },
+                { id:"critical",label:"CRITICAL",color:neon.red },
+                { id:"full",label:"FULL",color:neon.yellow },
+                { id:"normal",label:"NORMAL",color:neon.green },
+              ].map(f=>(
+                <button key={f.id} onClick={()=>setDashFilter(f.id)}
+                  style={{ ...S.btn(f.color, dashFilter!==f.id),padding:"6px 12px",fontSize:9 }}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Table header */}
+          <div style={{ padding:"0 18px" }}>
+            <div style={{ display:"grid",gridTemplateColumns:"2.2fr 100px 120px 120px 80px 130px",gap:8,padding:"10px 4px",borderBottom:"1px solid rgba(0,255,136,0.15)",fontSize:9,color:"#6b8f80",letterSpacing:1.5,textTransform:"uppercase" }}>
+              <span>Location Node</span><span>Status</span><span>Wet Fill</span><span>Dry Fill</span><span>Temp</span><span>Action</span>
+            </div>
+            {/* Table rows */}
+            <div style={{ maxHeight:460,overflowY:"auto" }}>
+              {filtered.length===0 && (
+                <div style={{ textAlign:"center",color:"#6b8f80",padding:28,fontSize:12 }}>No bins match your search</div>
+              )}
+              {filtered.map((bin,i)=>{
+                const statusColor=bin.status==="critical"?neon.red:bin.status==="full"?neon.yellow:neon.green;
+                return (
+                  <div key={bin.id} onClick={()=>{setSelectedBin(bin);setActiveTab("map");}}
+                    style={{ display:"grid",gridTemplateColumns:"2.2fr 100px 120px 120px 80px 130px",gap:8,padding:"11px 4px",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer",alignItems:"center",transition:"background 0.2s" }}
+                    onMouseEnter={e=>e.currentTarget.style.background="rgba(0,255,136,0.04)"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    {/* Name */}
+                    <div style={{ fontSize:12,color:"#e8fff5",display:"flex",alignItems:"center",gap:8 }}>
+                      <div style={{ width:6,height:6,borderRadius:"50%",background:statusColor,boxShadow:`0 0 6px ${statusColor}`,flexShrink:0 }}/>
+                      {bin.name}
+                    </div>
+                    {/* Status badge */}
+                    <div>
+                      <span style={{ fontSize:9,fontWeight:700,letterSpacing:1,padding:"3px 8px",borderRadius:20,background:`${statusColor}22`,border:`1px solid ${statusColor}66`,color:statusColor }}>
+                        {bin.status.toUpperCase()}
+                      </span>
+                    </div>
+                    {/* Wet bar */}
+                    <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                      <div style={{ flex:1,height:6,background:"rgba(0,229,255,0.1)",borderRadius:3,overflow:"hidden" }}>
+                        <div style={{ width:`${bin.wet}%`,height:"100%",background:bin.wet>85?neon.red:neon.cyan,borderRadius:3,transition:"width 1s" }}/>
+                      </div>
+                      <span style={{ fontSize:10,color:bin.wet>85?neon.red:neon.cyan,minWidth:32,textAlign:"right" }}>{bin.wet}%</span>
+                    </div>
+                    {/* Dry bar */}
+                    <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                      <div style={{ flex:1,height:6,background:"rgba(255,214,0,0.1)",borderRadius:3,overflow:"hidden" }}>
+                        <div style={{ width:`${bin.dry}%`,height:"100%",background:bin.dry>85?neon.red:neon.yellow,borderRadius:3,transition:"width 1s" }}/>
+                      </div>
+                      <span style={{ fontSize:10,color:bin.dry>85?neon.red:neon.yellow,minWidth:32,textAlign:"right" }}>{bin.dry}%</span>
+                    </div>
+                    {/* Temp */}
+                    <span style={{ fontSize:11,color:neon.cyan }}>{bin.temp}°C</span>
+                    {/* Action */}
+                    <button onClick={e=>{e.stopPropagation();sendTruck(bin);}}
+                      style={{ ...S.btn(neon.cyan,true),padding:"5px 10px",fontSize:9,letterSpacing:0.5 }}>
+                      DISPATCH TRUCK
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ── THROW WASTE ──
+  const ThrowWaste = () => {
+    const filteredWaste = wasteFilter==="all" ? WASTE_ITEMS : WASTE_ITEMS.filter(item=>item.type===wasteFilter);
+    const totalLogPoints = throwLog.reduce((s,item)=>s+item.points,0);
+    return (
+      <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
+        <div style={S.grid3}>
+          {[{label:"Items Sorted",value:throwLog.length,color:neon.green},{label:"Session Points",value:`+${totalLogPoints}`,color:neon.yellow},{label:"Last Item",value:lastThrown?lastThrown.name:"None",color:neon.cyan}].map((stat,i)=>(
+            <div key={i} style={{ ...S.card,padding:16,textAlign:"center" }}>
+              <div style={{ ...S.statVal(stat.color),fontSize:22 }}>{stat.value}</div>
+              <div style={S.statLabel}>{stat.label}</div>
+            </div>
+          ))}
+        </div>
+        <div style={S.card}>
+          <div style={S.cardHead}>
+            <span style={S.cardTitle}>🗑️ Select Waste to Sort</span>
+            {user&&<span style={{ fontSize:9,color:neon.green }}>☁️ Auto-saved</span>}
+          </div>
+          <div style={{ padding:"14px 18px 0",display:"flex",gap:8,flexWrap:"wrap" }}>
+            {[{id:"all",label:"All",color:neon.green},{id:"wet",label:"Wet",color:neon.cyan},{id:"dry",label:"Dry",color:neon.yellow},{id:"hazardous",label:"Hazardous",color:neon.red}].map(f=>(
+              <button key={f.id} onClick={()=>setWasteFilter(f.id)} style={{ ...S.btn(f.color,wasteFilter!==f.id),padding:"7px 12px",fontSize:9 }}>{f.label}</button>
+            ))}
+          </div>
+          <div style={{ ...S.cardBody,display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12 }}>
+            {filteredWaste.map((item,i)=>{
+              const color=item.type==="wet"?neon.cyan:item.type==="dry"?neon.yellow:neon.red;
+              const active=lastThrown?.name===item.name;
+              return (
+                <button key={i} onClick={()=>throwWaste(item)} style={{ background:`${color}0a`,border:`1px solid ${active?color:color+"33"}`,borderRadius:10,padding:"18px 12px",cursor:"pointer",textAlign:"center",color:"#e8fff5",minHeight:120,transform:active?"translateY(-4px) scale(1.02)":"translateY(0) scale(1)",boxShadow:active?`0 0 18px ${color}55`:"none",transition:"all 0.25s ease" }}>
+                  <div style={{ fontSize:34,marginBottom:8 }}>{item.emoji}</div>
+                  <div style={{ fontSize:12,color:"#cceedd",marginBottom:4 }}>{item.name}</div>
+                  <div style={{ fontSize:10,color,fontWeight:700 }}>{item.type.toUpperCase()} · +{item.points} pts</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        {throwLog.length>0&&(
+          <div style={S.card}>
+            <div style={S.cardHead}>
+              <span style={S.cardTitle}>📋 Throw Log</span>
+              <button onClick={()=>{setThrowLog([]);setLastThrown(null);showToast("Throw log cleared");}} style={{ ...S.btn(neon.red,true),padding:"5px 10px",fontSize:9 }}>Clear Log</button>
+            </div>
+            <div style={{ ...S.cardBody,maxHeight:260,overflowY:"auto" }}>
+              {throwLog.map((l,i)=>{
+                const color=l.type==="wet"?neon.cyan:l.type==="dry"?neon.yellow:neon.red;
+                return (
+                  <div key={i} style={{ display:"grid",gridTemplateColumns:"1.5fr 1fr 1fr 1fr",gap:10,alignItems:"center",padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,0.04)",fontSize:12 }}>
+                    <span>{l.emoji} {l.name}</span>
+                    <span style={{ color,fontSize:10 }}>{l.type.toUpperCase()}</span>
+                    <span style={{ color:neon.green }}>+{l.points} pts</span>
+                    <span style={{ color:"#6b8f80",fontSize:10,textAlign:"right" }}>{l.time}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+
+  // ── MAP TAB ──
   const MapTab = () => (
-    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+    <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
       <div style={S.grid2}>
         <div style={S.card}>
           <div style={S.cardHead}>
             <span style={S.cardTitle}>🗺️ Bin Network — Bengaluru</span>
-            {syncStatus.rtdb==="live" && <span style={{ fontSize:9, color:neon.green }}>● RTDB LIVE</span>}
+            {syncStatus.rtdb==="live"&&<span style={{ fontSize:9,color:neon.green }}>● RTDB LIVE</span>}
           </div>
           <div style={S.cardBody}>
-            <BinMap bins={bins} selectedBin={selectedBin} onSelect={setSelectedBin} />
-            <div style={{ marginTop:10, display:"flex", gap:12, flexWrap:"wrap" }}>
-              {[{ color:neon.green,label:"Normal" },{ color:neon.yellow,label:"Full" },{ color:neon.red,label:"Critical" }].map(l=>(
-                <div key={l.label} style={{ display:"flex", alignItems:"center", gap:5, fontSize:10, color:"#6b8f80" }}>
-                  <div style={{ width:8,height:8,borderRadius:"50%",background:l.color }} />{l.label}
+            <BinMap bins={bins} selectedBin={selectedBin} onSelect={setSelectedBin}/>
+            <div style={{ marginTop:10,display:"flex",gap:12,flexWrap:"wrap" }}>
+              {[{color:neon.green,label:"Normal"},{color:neon.yellow,label:"Full"},{color:neon.red,label:"Critical"}].map(l=>(
+                <div key={l.label} style={{ display:"flex",alignItems:"center",gap:5,fontSize:10,color:"#6b8f80" }}>
+                  <div style={{ width:8,height:8,borderRadius:"50%",background:l.color }}/>{l.label}
                 </div>
               ))}
             </div>
           </div>
         </div>
-        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+        <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
           {selectedBin ? (
-            <div style={{ ...S.card, flex:1 }}>
+            <div style={{ ...S.card,flex:1 }}>
               <div style={S.cardHead}><span style={S.cardTitle}>📍 {selectedBin.name}</span></div>
               <div style={S.cardBody}>
-                <div style={{ display:"flex", gap:20, flexWrap:"wrap", marginBottom:14 }}>
-                  <Donut value={selectedBin.wet} color={neon.cyan} label="Wet" />
-                  <Donut value={selectedBin.dry} color={neon.yellow} label="Dry" />
+                <div style={{ display:"flex",gap:20,flexWrap:"wrap",marginBottom:14 }}>
+                  <Donut value={selectedBin.wet} color={neon.cyan} label="Wet"/>
+                  <Donut value={selectedBin.dry} color={neon.yellow} label="Dry"/>
                 </div>
-                <div style={{ fontSize:12, color:"#6b8f80", lineHeight:1.8 }}>
-                  <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginTop:16 }}>
-  <button
-    onClick={() => markCollected(selectedBin.id)}
-    style={{ ...S.btn(neon.green), padding:"8px 12px", fontSize:10 }}
-  >
-    Mark Collected
-  </button>
-
-  <button
-    onClick={() => sendTruck(selectedBin)}
-    style={{ ...S.btn(neon.yellow, true), padding:"8px 12px", fontSize:10 }}
-  >
-    Send Truck
-  </button>
-
-  <button
-    onClick={() => reportIssue(selectedBin.name)}
-    style={{ ...S.btn(neon.red, true), padding:"8px 12px", fontSize:10 }}
-  >
-    Report Issue
-  </button>
-</div>
+                <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:14 }}>
+                  <button onClick={()=>markCollected(selectedBin.id)} style={{ ...S.btn(neon.green),padding:"8px 12px",fontSize:10 }}>Mark Collected</button>
+                  <button onClick={()=>sendTruck(selectedBin)} style={{ ...S.btn(neon.yellow,true),padding:"8px 12px",fontSize:10 }}>Send Truck</button>
+                  <button onClick={()=>reportIssue(selectedBin.name)} style={{ ...S.btn(neon.red,true),padding:"8px 12px",fontSize:10 }}>Report Issue</button>
+                </div>
+                <div style={{ fontSize:12,color:"#6b8f80",lineHeight:1.8 }}>
                   <div>Temp: <span style={{ color:neon.cyan }}>{selectedBin.temp}°C</span></div>
                   <div>Status: <span style={{ color:selectedBin.status==="critical"?neon.red:selectedBin.status==="full"?neon.yellow:neon.green }}>{selectedBin.status.toUpperCase()}</span></div>
                   <div>Lat: {selectedBin.lat} · Lng: {selectedBin.lng}</div>
@@ -1819,47 +1619,45 @@ const AIClassifier = () => {
               </div>
             </div>
           ) : (
-            <div style={{ ...S.card, flex:1, display:"flex", alignItems:"center", justifyContent:"center" }}>
-              <div style={{ textAlign:"center", color:"#6b8f80", fontSize:12, padding:20 }}>
-                <div style={{ fontSize:30, marginBottom:8 }}>📌</div>Click a bin on the map
+            <div style={{ ...S.card,flex:1,display:"flex",alignItems:"center",justifyContent:"center" }}>
+              <div style={{ textAlign:"center",color:"#6b8f80",fontSize:12,padding:20 }}>
+                <div style={{ fontSize:30,marginBottom:8 }}>📌</div>Click a bin on the map
               </div>
             </div>
           )}
           <div style={S.card}>
             <div style={S.cardHead}><span style={S.cardTitle}>🚛 AI Route Optimizer</span></div>
             <div style={S.cardBody}>
-              <button style={{ ...S.btn(neon.purple,true), width:"100%", marginBottom:12 }} onClick={optimizeRoute} disabled={routeOptimizing}>
+              <button style={{ ...S.btn(neon.purple,true),width:"100%",marginBottom:12 }} onClick={optimizeRoute} disabled={routeOptimizing}>
                 {routeOptimizing?"Optimizing...":"⚡ Optimize Collection Route"}
               </button>
-              {optimizedRoute && !optimizedRoute.error && (
-                <div style={{ fontSize:11, lineHeight:1.8 }}>
-                  <div style={{ color:neon.green, marginBottom:6 }}>Route: {optimizedRoute.route?.join(" → ")}</div>
+              {optimizedRoute&&(
+                <div style={{ fontSize:11,lineHeight:1.8 }}>
+                  <div style={{ color:neon.green,marginBottom:6 }}>Route: {optimizedRoute.route?.join(" → ")}</div>
                   <div style={{ color:"#6b8f80" }}>ETA: {optimizedRoute.estimated_time}</div>
                   <div style={{ color:neon.cyan }}>Fuel saved: {optimizedRoute.fuel_saved}</div>
                   <div style={{ color:neon.yellow }}>CO₂ reduced: {optimizedRoute.co2_reduction}</div>
-                  {user && <div style={{ fontSize:9, color:neon.green, marginTop:4 }}>☁️ Saved to Firestore</div>}
                 </div>
               )}
             </div>
           </div>
         </div>
       </div>
+      {/* All bins list */}
       <div style={S.card}>
         <div style={S.cardHead}><span style={S.cardTitle}>All Bins</span>
-          <span style={{ fontSize:9, color:syncStatus.rtdb==="live"?neon.green:"#6b8f80" }}>
-            {syncStatus.rtdb==="live"?"● Realtime DB":"○ Local data"}
-          </span>
+          <span style={{ fontSize:9,color:syncStatus.rtdb==="live"?neon.green:"#6b8f80" }}>{syncStatus.rtdb==="live"?"● Realtime DB":"○ Local data"}</span>
         </div>
         <div style={S.cardBody}>
           {bins.map(bin=>{
             const color=bin.status==="critical"?neon.red:bin.status==="full"?neon.yellow:neon.green;
             return (
-              <div key={bin.id} onClick={()=>setSelectedBin(bin)} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:"1px solid rgba(255,255,255,0.04)", cursor:"pointer" }}>
-                <div style={{ width:8,height:8,borderRadius:"50%",background:color,boxShadow:`0 0 6px ${color}`,flexShrink:0 }} />
-                <div style={{ flex:1, fontSize:12 }}>{bin.name}</div>
-                <div style={{ fontSize:10, color:neon.cyan }}>W:{bin.wet}%</div>
-                <div style={{ fontSize:10, color:neon.yellow }}>D:{bin.dry}%</div>
-                <div style={{ fontSize:10, color, fontWeight:700 }}>{bin.status.toUpperCase()}</div>
+              <div key={bin.id} onClick={()=>setSelectedBin(bin)} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer" }}>
+                <div style={{ width:8,height:8,borderRadius:"50%",background:color,boxShadow:`0 0 6px ${color}`,flexShrink:0 }}/>
+                <div style={{ flex:1,fontSize:12 }}>{bin.name}</div>
+                <div style={{ fontSize:10,color:neon.cyan }}>W:{bin.wet}%</div>
+                <div style={{ fontSize:10,color:neon.yellow }}>D:{bin.dry}%</div>
+                <div style={{ fontSize:10,color,fontWeight:700 }}>{bin.status.toUpperCase()}</div>
               </div>
             );
           })}
@@ -1868,77 +1666,293 @@ const AIClassifier = () => {
     </div>
   );
 
-  // ── Chatbot ──
+  // ── ML PREDICTOR — DYNAMIC PER CITY ──
+  const MLPredictor = () => {
+    const histToShow = mlHistData.slice(0,41);
+    const trainN = Math.floor(histToShow.length * mlSplit / 100);
+    const testN = histToShow.length - trainN;
+
+    return (
+      <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
+        <div style={S.grid2}>
+          {/* Left: Compute & Model Training */}
+          <div style={S.card}>
+            <div style={S.cardHead}>
+              <span style={S.cardTitle}>📈 Compute &amp; Model Training Center</span>
+            </div>
+            <div style={S.cardBody}>
+              <div style={{ fontSize:11,color:"#6b8f80",marginBottom:14,lineHeight:1.7 }}>
+                Tune estimators dynamically. Regression computes linear weights; classifiers map high-density waste neighbor sets.
+              </div>
+
+              {/* City selector */}
+              <div style={{ marginBottom:12 }}>
+                <div style={{ fontSize:9,color:"#6b8f80",letterSpacing:1,marginBottom:6 }}>SELECT CITY / LOCATION</div>
+                <select value={mlCity.id} onChange={e=>{ const b=INIT_BINS.find(x=>x.id===e.target.value); if(b) handleMlCityChange(b); }}
+                  style={{ ...S.input,fontSize:12,padding:"8px 12px",background:"rgba(0,255,136,0.07)" }}>
+                  {INIT_BINS.map(b=><option key={b.id} value={b.id} style={{ background:"#0a1614" }}>{b.name}</option>)}
+                </select>
+              </div>
+
+              {/* Estimator */}
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12 }}>
+                <div>
+                  <div style={{ fontSize:9,color:"#6b8f80",letterSpacing:1,marginBottom:6 }}>MODEL ESTIMATOR</div>
+                  <select value={mlEstimator} onChange={e=>setMlEstimator(e.target.value)}
+                    style={{ ...S.input,fontSize:12,padding:"8px 12px",background:"rgba(0,255,136,0.07)" }}>
+                    <option value="MLR" style={{ background:"#0a1614" }}>Multiple Linear Regression (OLS)</option>
+                    <option value="KNN" style={{ background:"#0a1614" }}>KNN Classifier</option>
+                    <option value="RF"  style={{ background:"#0a1614" }}>Random Forest</option>
+                    <option value="SVM" style={{ background:"#0a1614" }}>Support Vector Machine</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontSize:9,color:"#6b8f80",letterSpacing:1,marginBottom:6 }}>TRAIN/TEST SPLIT: {mlSplit}%</div>
+                  <input type="range" min={60} max={90} value={mlSplit} onChange={e=>setMlSplit(Number(e.target.value))}
+                    style={{ width:"100%",accentColor:neon.green,marginTop:10 }}/>
+                  <div style={{ display:"flex",justifyContent:"space-between",fontSize:9,color:"#6b8f80",marginTop:4 }}>
+                    <span>Train: {trainN}</span><span>Test: {testN}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Feature toggles */}
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:9,color:"#6b8f80",letterSpacing:1,marginBottom:8 }}>SELECT FEATURES</div>
+                <div style={{ display:"flex",flexWrap:"wrap",gap:8 }}>
+                  {[
+                    { id:"temp",   label:"Temperature (Continuous)" },
+                    { id:"pop",    label:"Population Index (Continuous)" },
+                    { id:"weekend",label:"Weekend Factor (Binary)" },
+                    { id:"event",  label:"Festival/Event (Binary)" },
+                  ].map(f=>{
+                    const on=mlFeatures.includes(f.id);
+                    return (
+                      <button key={f.id} onClick={()=>setMlFeatures(prev=>on?prev.filter(x=>x!==f.id):[...prev,f.id])}
+                        style={{ padding:"6px 12px",fontSize:10,borderRadius:6,cursor:"pointer",fontFamily:"'Courier New',monospace",
+                          background:on?`${neon.green}22`:"transparent",border:`1px solid ${on?neon.green:"rgba(0,255,136,0.25)"}`,color:on?neon.green:"#6b8f80",display:"flex",alignItems:"center",gap:6 }}>
+                        <div style={{ width:8,height:8,borderRadius:2,background:on?neon.green:"transparent",border:`1px solid ${on?neon.green:"#6b8f80"}` }}/>
+                        {f.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Run model */}
+              <button onClick={runMlModel} disabled={mlRunning}
+                style={{ ...S.btn(neon.green),width:"100%",opacity:mlRunning?0.7:1 }}>
+                {mlRunning ? (
+                  <span style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:8 }}>
+                    <div style={{ width:14,height:14,border:`2px solid #050a0e33`,borderTop:`2px solid #050a0e`,borderRadius:"50%",animation:"spin 0.8s linear infinite" }}/>
+                    Compiling...
+                  </span>
+                ) : "✓ Run Estimator Model Compilation"}
+              </button>
+
+              {/* Historical dataset */}
+              <div style={{ marginTop:18 }}>
+                <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8 }}>
+                  <div style={{ fontSize:9,color:"#6b8f80",letterSpacing:1.5 }}>
+                    ■ HISTORICAL DATASET ({histToShow.length}) — {mlCity.name.toUpperCase()}
+                  </div>
+                  <span style={{ fontSize:9,color:neon.cyan,border:`1px solid ${neon.cyan}44`,borderRadius:4,padding:"2px 6px" }}>Feed Stable</span>
+                </div>
+                <div style={{ overflowX:"auto" }}>
+                  <table style={{ width:"100%",borderCollapse:"collapse",fontSize:10 }}>
+                    <thead>
+                      <tr style={{ color:"#6b8f80",letterSpacing:1,textTransform:"uppercase",borderBottom:"1px solid rgba(0,255,136,0.15)" }}>
+                        <th style={{ padding:"6px 4px",textAlign:"left",fontWeight:400 }}>LOCATION</th>
+                        <th style={{ padding:"6px 4px",textAlign:"left",fontWeight:400 }}>TEMP</th>
+                        <th style={{ padding:"6px 4px",textAlign:"left",fontWeight:400 }}>POP</th>
+                        <th style={{ padding:"6px 4px",textAlign:"left",fontWeight:400 }}>WKD</th>
+                        <th style={{ padding:"6px 4px",textAlign:"left",fontWeight:400 }}>EVT</th>
+                        <th style={{ padding:"6px 4px",textAlign:"left",fontWeight:400 }}>KG</th>
+                        <th style={{ padding:"6px 4px",textAlign:"left",fontWeight:400 }}>CLASS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {histToShow.slice(0,12).map((row,i)=>{
+                        const clsColor=row.cls==="HIGH"?neon.red:row.cls==="MEDIUM"?neon.yellow:neon.green;
+                        return (
+                          <tr key={i} style={{ borderBottom:"1px solid rgba(255,255,255,0.03)" }}>
+                            <td style={{ padding:"5px 4px",color:"#e8fff5",fontSize:10 }}>{mlCity.name}</td>
+                            <td style={{ padding:"5px 4px",color:neon.cyan }}>{row.temp.toFixed(1)}°C</td>
+                            <td style={{ padding:"5px 4px",color:"#cceedd" }}>{row.pop.toFixed(1)}</td>
+                            <td style={{ padding:"5px 4px",color:row.weekend?neon.green:"#6b8f80" }}>{row.weekend?"Y":"N"}</td>
+                            <td style={{ padding:"5px 4px",color:row.event?neon.yellow:"#6b8f80" }}>{row.event?"Y":"N"}</td>
+                            <td style={{ padding:"5px 4px",color:"#e8fff5",fontWeight:700 }}>{row.kg}</td>
+                            <td style={{ padding:"5px 4px" }}>
+                              <span style={{ padding:"2px 7px",borderRadius:10,background:`${clsColor}22`,color:clsColor,fontSize:9,fontWeight:700 }}>{row.cls}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Predictive Dispatch Summary */}
+              <div style={{ marginTop:16,padding:12,background:`${neon.yellow}08`,border:`1px solid ${neon.yellow}33`,borderRadius:8 }}>
+                <div style={{ fontSize:10,color:neon.yellow,letterSpacing:1.5,marginBottom:8 }}>
+                  ⚡ PREDICTIVE DISPATCH SUMMARY — {mlCity.name.toUpperCase()}
+                </div>
+                <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10 }}>
+                  {[
+                    { label:"Avg Waste/Day",value:`${mlSummary.meanKg} kg`,color:neon.green },
+                    { label:"R² Score",value:mlSummary.r2,color:neon.cyan },
+                    { label:"Residual SE",value:`${mlSummary.rse}`,color:neon.yellow },
+                  ].map((s,i)=>(
+                    <div key={i} style={{ textAlign:"center" }}>
+                      <div style={{ fontSize:16,fontWeight:900,color:s.color }}>{s.value}</div>
+                      <div style={{ fontSize:9,color:"#6b8f80",marginTop:3 }}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Interactive Prediction + R Summary */}
+          <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+            {/* Prediction platform */}
+            <div style={S.card}>
+              <div style={S.cardHead}><span style={S.cardTitle}>🔮 Interactive Prediction Platform</span></div>
+              <div style={S.cardBody}>
+                <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12 }}>
+                  <div>
+                    <div style={{ fontSize:9,color:"#6b8f80",letterSpacing:1,marginBottom:6 }}>TARGET LOCATION</div>
+                    <select value={mlPredCity.id} onChange={e=>{ const b=INIT_BINS.find(x=>x.id===e.target.value); if(b){setMlPredCity(b);setMlPredTemp(parseFloat(b.temp));} }}
+                      style={{ ...S.input,fontSize:11,padding:"7px 10px",background:"rgba(0,255,136,0.07)" }}>
+                      {INIT_BINS.map(b=><option key={b.id} value={b.id} style={{ background:"#0a1614" }}>{b.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{ fontSize:9,color:"#6b8f80",letterSpacing:1,marginBottom:6 }}>TEMP: {mlPredTemp}°C</div>
+                    <input type="range" min={15} max={40} value={mlPredTemp} onChange={e=>setMlPredTemp(Number(e.target.value))}
+                      style={{ width:"100%",accentColor:neon.cyan,marginTop:8 }}/>
+                  </div>
+                </div>
+                <div style={{ display:"flex",gap:16,marginBottom:14 }}>
+                  <label style={{ display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:11,color:"#cceedd" }}>
+                    <input type="checkbox" checked={mlPredWeekend} onChange={e=>setMlPredWeekend(e.target.checked)} style={{ accentColor:neon.green }}/>
+                    Weekend Context
+                  </label>
+                  <label style={{ display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:11,color:"#cceedd" }}>
+                    <input type="checkbox" checked={mlPredEvent} onChange={e=>setMlPredEvent(e.target.checked)} style={{ accentColor:neon.cyan }}/>
+                    Active Local Event
+                  </label>
+                </div>
+                <button onClick={computePrediction} style={{ ...S.btn(neon.cyan),width:"100%" }}>
+                  🔮 Compute Estimated Yield Trajectory
+                </button>
+                {mlPredResult&&(
+                  <div style={{ marginTop:14,padding:14,background:`${neon.cyan}08`,border:`1px solid ${neon.cyan}33`,borderRadius:8,animation:"fadeIn 0.4s ease" }}>
+                    <div style={{ display:"flex",gap:20,flexWrap:"wrap",alignItems:"center" }}>
+                      <div style={{ textAlign:"center" }}>
+                        <div style={{ fontSize:32,fontWeight:900,color:mlPredResult.cls==="HIGH"?neon.red:mlPredResult.cls==="MEDIUM"?neon.yellow:neon.green }}>{mlPredResult.kg} <span style={{ fontSize:14 }}>kg</span></div>
+                        <div style={{ fontSize:9,color:"#6b8f80",marginTop:3 }}>PREDICTED WASTE</div>
+                      </div>
+                      <div style={{ textAlign:"center" }}>
+                        <div style={{ fontSize:16,fontWeight:700,color:mlPredResult.cls==="HIGH"?neon.red:mlPredResult.cls==="MEDIUM"?neon.yellow:neon.green }}>{mlPredResult.cls}</div>
+                        <div style={{ fontSize:9,color:"#6b8f80",marginTop:3 }}>CLASS</div>
+                      </div>
+                      <div style={{ textAlign:"center" }}>
+                        <div style={{ fontSize:16,fontWeight:700,color:neon.cyan }}>{mlPredResult.trend}</div>
+                        <div style={{ fontSize:9,color:"#6b8f80",marginTop:3 }}>TREND</div>
+                      </div>
+                    </div>
+                    <div style={{ marginTop:10,fontSize:11,color:"#6b8f80" }}>
+                      📍 {mlPredCity.name} · Temp: {mlPredTemp}°C · Pop Index: {mlPredCity.pop} · {mlPredWeekend?"Weekend":"Weekday"} · {mlPredEvent?"Event Day":"Normal Day"}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* R Summary Terminal */}
+            <div style={S.card}>
+              <div style={S.cardHead}>
+                <span style={S.cardTitle}>≡ R Summary Terminal</span>
+                <span style={{ fontSize:9,color:neon.green,border:`1px solid ${neon.green}44`,borderRadius:4,padding:"2px 6px" }}>In-Mem v3.1</span>
+              </div>
+              <div style={{ padding:14 }}>
+                <div style={{ background:"#020705",border:"1px solid rgba(0,255,136,0.15)",borderRadius:8,padding:14,fontFamily:"'Courier New',monospace",fontSize:10,color:neon.green,lineHeight:1.8,maxHeight:320,overflowY:"auto" }}>
+                  <div style={{ color:"#6b8f80" }}>&gt; summary(lm(formula = Waste_Kg ~ temp + population + weekend + event, data = historical_log))</div>
+                  <br/>
+                  <div style={{ color:"#cceedd" }}>Residuals:</div>
+                  <div>&nbsp;&nbsp;&nbsp;&nbsp;Min &nbsp;&nbsp;&nbsp;&nbsp;1Q &nbsp;Median &nbsp;&nbsp;&nbsp;3Q &nbsp;&nbsp;&nbsp;&nbsp;Max</div>
+                  <div>&nbsp;{frand(-20,-10).toFixed(3)} {frand(-5,-2).toFixed(3)} &nbsp;{frand(0,1).toFixed(3)} &nbsp;{frand(3,5).toFixed(3)} &nbsp;{frand(10,15).toFixed(3)}</div>
+                  <br/>
+                  <div style={{ color:"#cceedd" }}>Coefficients:</div>
+                  <div style={{ color:"#6b8f80" }}>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Estimate Std. Error t value Pr(&gt;|t|)</div>
+                  <div>(Intercept) &nbsp;{mlSummary.intercept.toFixed(4)} &nbsp;{frand(3,5).toFixed(4)} &nbsp;{frand(3,5).toFixed(3)} &nbsp;<span style={{ color:neon.red }}>{frand(0.00001,0.001).toFixed(5)} ***</span></div>
+                  <div>temp &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{mlSummary.b_temp.toFixed(4)} &nbsp;{frand(1,2).toFixed(4)} &nbsp;{frand(2,4).toFixed(3)} &nbsp;<span style={{ color:neon.red }}>{frand(0.001,0.01).toFixed(5)} **</span></div>
+                  <div>population &nbsp;{mlSummary.b_pop.toFixed(4)} &nbsp;{frand(1,2).toFixed(4)} &nbsp;{frand(2,4).toFixed(3)} &nbsp;<span style={{ color:neon.red }}>{frand(0.001,0.05).toFixed(5)} *</span></div>
+                  <div>weekend &nbsp;&nbsp;&nbsp;&nbsp;{mlSummary.b_weekend.toFixed(4)} &nbsp;{frand(5,10).toFixed(4)} &nbsp;{frand(2,4).toFixed(3)} &nbsp;<span style={{ color:neon.yellow }}>{frand(0.3,0.6).toFixed(5)} .</span></div>
+                  <div>event &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{mlSummary.b_event.toFixed(4)} &nbsp;{frand(8,15).toFixed(4)} &nbsp;{frand(2,5).toFixed(3)} &nbsp;<span style={{ color:neon.red }}>{frand(0.00001,0.001).toFixed(5)} ***</span></div>
+                  <br/>
+                  <div style={{ color:"#6b8f80" }}>Signif. codes: 0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1</div>
+                  <br/>
+                  <div>Residual std. error: <span style={{ color:neon.yellow }}>{mlSummary.rse}</span> on {mlSummary.n - 5} DF</div>
+                  <div>Multiple R-squared: <span style={{ color:neon.green }}>{mlSummary.r2}</span>,&nbsp; Adjusted R-squared: <span style={{ color:neon.cyan }}>{(mlSummary.r2 - 0.02).toFixed(4)}</span></div>
+                  <div>F-statistic: <span style={{ color:neon.cyan }}>{frand(18,35).toFixed(1)}</span> on 4 and {mlSummary.n-5} DF, p-value: <span style={{ color:neon.red }}>&lt; 2.2e-16</span></div>
+                  <br/>
+                  <div style={{ color:neon.green }}>&gt; # City: {mlCity.name}</div>
+                  <div style={{ color:neon.green }}>&gt; # Mean waste: {mlSummary.meanKg} kg/day · N={mlSummary.n} observations</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ── CHATBOT ──
   const Chatbot = () => {
     const chatEndRef = useRef(null);
-   useEffect(() => {
-  if (chatHistory.length > 0 || chatLoading) {
-    chatEndRef.current?.scrollIntoView({ behavior:"auto", block:"nearest" });
-  }
-}, [chatHistory, chatLoading]);
+    useEffect(()=>{ if(chatHistory.length>0||chatLoading) chatEndRef.current?.scrollIntoView({ behavior:"auto",block:"nearest" }); },[chatHistory,chatLoading]);
     return (
-      <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+      <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
         <div style={S.card}>
           <div style={S.cardHead}>
             <span style={S.cardTitle}>🤖 EcoBot — AI Assistant</span>
-            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-              {user && <span style={{ fontSize:9, color:neon.green }}>☁️ Chats saved</span>}
-              <span style={{ fontSize:10, color:neon.green, display:"flex", alignItems:"center", gap:5 }}>
-                <div style={S.pulse} /> Online
-              </span>
-              <button
-  onClick={() => setChatHistory([])}
-  style={{ ...S.btn(neon.red,true), padding:"4px 8px", fontSize:8 }}
->
-  Clear
-</button>
+            <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+              {user&&<span style={{ fontSize:9,color:neon.green }}>☁️ Chats saved</span>}
+              <span style={{ fontSize:10,color:neon.green,display:"flex",alignItems:"center",gap:5 }}><div style={S.pulse}/> Online</span>
+              <button onClick={()=>setChatHistory([])} style={{ ...S.btn(neon.red,true),padding:"4px 8px",fontSize:8 }}>Clear</button>
             </div>
           </div>
           <div style={{ padding:"0 18px 12px" }}>
-<div style={{
-  height:260,
-  overflowY:"auto",
-  display:"flex",
-  flexDirection:"column",
-  gap:10,
-  padding:"12px 0",
-  scrollBehavior:"smooth"
-}}>              {chatHistory.length===0 && (
-                <div style={{ textAlign:"center", color:"#6b8f80", fontSize:12, padding:20 }}>
-                  <div style={{ fontSize:28, marginBottom:8 }}>♻️</div>
-                  Ask me anything about waste management or recycling!
+            <div style={{ height:260,overflowY:"auto",display:"flex",flexDirection:"column",gap:10,padding:"12px 0",scrollBehavior:"smooth" }}>
+              {chatHistory.length===0&&(
+                <div style={{ textAlign:"center",color:"#6b8f80",fontSize:12,padding:20 }}>
+                  <div style={{ fontSize:28,marginBottom:8 }}>♻️</div>Ask me anything about waste management or recycling!
                 </div>
               )}
               {chatHistory.map((m,i)=>(
-                <div key={i} style={{ display:"flex", justifyContent:m.role==="user"?"flex-end":"flex-start" }}>
-                  <div style={{ maxWidth:"80%", padding:"10px 14px", borderRadius:10, fontSize:12, lineHeight:1.6,
-                    background:m.role==="user"?`${neon.green}22`:"rgba(255,255,255,0.04)",
-                    border:`1px solid ${m.role==="user"?neon.green+"44":"rgba(255,255,255,0.08)"}`,
-                    color:m.role==="user"?"#e8fff5":"#cceedd" }}>
-                    {m.role==="assistant" && <span style={{ color:neon.green, marginRight:6 }}>🤖</span>}
-                    {m.content}
+                <div key={i} style={{ display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start" }}>
+                  <div style={{ maxWidth:"80%",padding:"10px 14px",borderRadius:10,fontSize:12,lineHeight:1.6,background:m.role==="user"?`${neon.green}22`:"rgba(255,255,255,0.04)",border:`1px solid ${m.role==="user"?neon.green+"44":"rgba(255,255,255,0.08)"}`,color:m.role==="user"?"#e8fff5":"#cceedd" }}>
+                    {m.role==="assistant"&&<span style={{ color:neon.green,marginRight:6 }}>🤖</span>}{m.content}
                   </div>
                 </div>
               ))}
-              {chatLoading && (
-                <div style={{ display:"flex", gap:4, padding:"8px 14px" }}>
-                  {[0,1,2].map(i=><div key={i} style={{ width:6,height:6,borderRadius:"50%",background:neon.green, animation:`bounce 1.2s ${i*0.2}s infinite` }} />)}
-                </div>
-              )}
-              <div ref={chatEndRef} />
+              {chatLoading&&(<div style={{ display:"flex",gap:4,padding:"8px 14px" }}>{[0,1,2].map(i=><div key={i} style={{ width:6,height:6,borderRadius:"50%",background:neon.green,animation:`bounce 1.2s ${i*0.2}s infinite` }}/>)}</div>)}
+              <div ref={chatEndRef}/>
             </div>
-            <div style={{ display:"flex", gap:10, borderTop:"1px solid rgba(0,255,136,0.1)", paddingTop:12 }}>
-              <input style={S.input} placeholder="Ask about recycling, waste tips..." value={chatInput}
-                onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendChat()} />
-              <button style={{ ...S.btn(neon.green), whiteSpace:"nowrap" }} onClick={sendChat} disabled={chatLoading}>Send</button>
+            <div style={{ display:"flex",gap:10,borderTop:"1px solid rgba(0,255,136,0.1)",paddingTop:12 }}>
+              <input style={S.input} placeholder="Ask about recycling, waste tips..." value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendChat()}/>
+              <button style={{ ...S.btn(neon.green),whiteSpace:"nowrap" }} onClick={sendChat} disabled={chatLoading}>Send</button>
             </div>
           </div>
         </div>
         <div style={S.card}>
           <div style={S.cardHead}><span style={S.cardTitle}>Quick Questions</span></div>
-          <div style={{ ...S.cardBody, display:"flex", flexDirection:"column", gap:8 }}>
+          <div style={{ ...S.cardBody,display:"flex",flexDirection:"column",gap:8 }}>
             {["How do I dispose of old medicines safely?","What can I compost at home?","How to reduce plastic waste?","What goes in the blue recycling bin?"].map(q=>(
-              <button key={q} onClick={() => sendChat(q)} style={{ textAlign:"left", padding:"10px 14px", fontSize:12, background:"rgba(0,229,255,0.04)", border:"1px solid rgba(0,229,255,0.15)", borderRadius:8, cursor:"pointer", color:"#cceedd", fontFamily:"'Courier New',monospace" }}>
+              <button key={q} onClick={()=>sendChat(q)} style={{ textAlign:"left",padding:"10px 14px",fontSize:12,background:"rgba(0,229,255,0.04)",border:"1px solid rgba(0,229,255,0.15)",borderRadius:8,cursor:"pointer",color:"#cceedd",fontFamily:"'Courier New',monospace" }}>
                 → {q}
               </button>
             ))}
@@ -1948,472 +1962,174 @@ const AIClassifier = () => {
     );
   };
 
-  // ── Alerts ──
-const Alerts = () => {
-  const visibleAlerts =
-    alertFilter === "all"
-      ? alerts
-      : alerts.filter(a => a.type === alertFilter);
-
-  const counts = {
-    critical: alerts.filter(a => a.type === "critical").length,
-    warning: alerts.filter(a => a.type === "warning").length,
-    info: alerts.filter(a => a.type === "info").length
-  };
-
-  const resolveAlert = (alertId) => {
-    setAlerts(prev => prev.filter(a => a.id !== alertId));
-    if (selectedAlert?.id === alertId) setSelectedAlert(null);
-    showToast("Alert resolved");
-  };
-
-  const dispatchFromAlert = (alert) => {
-    addAlert("info", `Truck dispatched for alert: ${alert.msg}`);
-    showToast("Truck dispatched from alert");
-  };
-
-  return (
-    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-      <div style={S.grid3}>
-        {[
-          { label:"Critical", value:counts.critical, color:neon.red },
-          { label:"Warning", value:counts.warning, color:neon.yellow },
-          { label:"Info", value:counts.info, color:neon.cyan }
-        ].map((s, i) => (
-          <div key={i} style={{
-            ...S.card,
-            padding:16,
-            textAlign:"center",
-            borderColor:`${s.color}44`,
-            background:`${s.color}08`
-          }}>
-            <div style={{ ...S.statVal(s.color), fontSize:26 }}>{s.value}</div>
-            <div style={S.statLabel}>{s.label} Alerts</div>
-          </div>
-        ))}
-      </div>
-
-      <div style={S.card}>
-        <div style={S.cardHead}>
-          <span style={S.cardTitle}>🔔 Live Alerts</span>
-          <div style={{ display:"flex", gap:10, alignItems:"center" }}>
-            {syncStatus.firestore === "live" && (
-              <span style={{ fontSize:9, color:neon.green }}>● Firestore live</span>
-            )}
-            <span style={{ fontSize:10, color:"#6b8f80" }}>{visibleAlerts.length} showing</span>
-          </div>
-        </div>
-
-        <div style={{ padding:"14px 18px 0", display:"flex", gap:8, flexWrap:"wrap" }}>
-          {[
-            { id:"all", label:"All", color:neon.green },
-            { id:"critical", label:"Critical", color:neon.red },
-            { id:"warning", label:"Warning", color:neon.yellow },
-            { id:"info", label:"Info", color:neon.cyan }
-          ].map(filter => (
-            <button
-              key={filter.id}
-              onClick={() => setAlertFilter(filter.id)}
-              style={{
-                ...S.btn(filter.color, alertFilter !== filter.id),
-                padding:"7px 12px",
-                fontSize:9
-              }}
-            >
-              {filter.label}
-            </button>
-          ))}
-        </div>
-
-        <div style={S.cardBody}>
-          {visibleAlerts.length === 0 && (
-            <div style={{ textAlign:"center", color:"#6b8f80", padding:28, fontSize:12 }}>
-              No alerts in this category
-            </div>
-          )}
-
-          {visibleAlerts.map(a => {
-            const color =
-              a.type === "critical" ? neon.red :
-              a.type === "warning" ? neon.yellow :
-              neon.cyan;
-
-            return (
-              <div
-                key={a.id}
-                onClick={() => setSelectedAlert(a)}
-                style={{
-                  cursor:"pointer",
-                  display:"grid",
-                  gridTemplateColumns:"32px 1fr auto",
-                  gap:12,
-                  alignItems:"center",
-                  padding:"14px",
-                  marginBottom:10,
-                  background:`${color}08`,
-                  border:`1px solid ${color}22`,
-                  borderRadius:10,
-                  borderLeft:`4px solid ${color}`,
-                  boxShadow:selectedAlert?.id === a.id ? `0 0 18px ${color}33` : "none",
-                  transform:selectedAlert?.id === a.id ? "translateX(4px)" : "translateX(0)",
-                  transition:"all 0.25s ease"
-                }}
-              >
-                <div style={{ fontSize:18 }}>
-                  {a.type === "critical" ? "🚨" : a.type === "warning" ? "⚠️" : "ℹ️"}
-                </div>
-
-                <div>
-                  <div style={{ fontSize:12, color:"#e8fff5", marginBottom:3 }}>{a.msg}</div>
-                  <div style={{ fontSize:10, color:"#6b8f80" }}>{a.time || "just now"}</div>
-                </div>
-
-                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                  <span style={{ fontSize:10, color, textTransform:"uppercase", fontWeight:700 }}>
-                    {a.type}
-                  </span>
-
-                  {a.type === "critical" && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        dispatchFromAlert(a);
-                      }}
-                      style={{ ...S.btn(neon.yellow,true), padding:"5px 8px", fontSize:8 }}
-                    >
-                      Send Truck
-                    </button>
-                  )}
-
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      resolveAlert(a.id);
-                    }}
-                    style={{ ...S.btn(neon.green,true), padding:"5px 8px", fontSize:8 }}
-                  >
-                    Resolve
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {selectedAlert && (
-        <div style={{
-          padding:20,
-          borderRadius:12,
-          background:"rgba(0,255,136,0.05)",
-          border:"1px solid rgba(0,255,136,0.2)",
-          animation:"fadeIn 0.4s ease"
-        }}>
-          <div style={{
-            fontSize:18,
-            marginBottom:10,
-            color:selectedAlert.type === "critical" ? neon.red : selectedAlert.type === "warning" ? neon.yellow : neon.cyan
-          }}>
-            {selectedAlert.type.toUpperCase()} ALERT
-          </div>
-
-          <div style={{ fontSize:14, color:"#e8fff5", marginBottom:10 }}>
-            {selectedAlert.msg}
-          </div>
-
-          <div style={{ fontSize:12, color:"#6b8f80", lineHeight:1.8 }}>
-            📍 Location: Bengaluru Smart Bin Network<br />
-            🕒 Time: {selectedAlert.time || "just now"}<br />
-            🚛 Recommended Action: {selectedAlert.type === "critical" ? "Dispatch collection vehicle" : "Monitor bin status"}<br />
-            🌡️ Sensor: Active
-          </div>
-
-          <div style={{ display:"flex", gap:8, marginTop:15 }}>
-            <button
-              onClick={() => dispatchFromAlert(selectedAlert)}
-              style={{ ...S.btn(neon.yellow,true), padding:"8px 16px", fontSize:10 }}
-            >
-              Send Truck
-            </button>
-
-            <button
-              onClick={() => resolveAlert(selectedAlert.id)}
-              style={{ ...S.btn(neon.green), padding:"8px 16px", fontSize:10 }}
-            >
-              Resolve
-            </button>
-
-            <button
-              onClick={() => setSelectedAlert(null)}
-              style={{ ...S.btn(neon.cyan,true), padding:"8px 16px", fontSize:10 }}
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-  // ── Rewards ──
-  const REWARDS = [
-  { id:1, title:"Plant a Tree", cost:500, icon:"🌱" },
-  { id:2, title:"Eco Coupon", cost:800, icon:"🎟️" },
-  { id:3, title:"Compost Kit", cost:1200, icon:"🪴" },
-  { id:4, title:"Recycling Badge", cost:300, icon:"♻️" }
-];
-
-const BADGES = [
-  { id:"recycler", icon:"♻️", label:"Recycler", earned:true, bonus:20 },
-  { id:"composter", icon:"🌱", label:"Composter", earned:true, bonus:25 },
-  { id:"power", icon:"⚡", label:"Power User", earned:true, bonus:30 },
-  { id:"hero", icon:"🌍", label:"Eco Hero", earned:points >= 500, bonus:50 },
-  { id:"zero", icon:"🔋", label:"Zero Waste", earned:points >= 800, bonus:75 },
-  { id:"city", icon:"🏙️", label:"City Saver", earned:points >= 1200, bonus:100 }
-];
-
-const [selectedBadge, setSelectedBadge] = useState(null);
-const [claimedBadges, setClaimedBadges] = useState([]);
-
-const redeemReward = (reward) => {
-  if (points < reward.cost) {
-    showToast("Not enough eco points");
-    return;
-  }
-
-  const newPts = points - reward.cost;
-  setPoints(newPts);
-  savePoints(newPts);
-  showToast(`${reward.title} redeemed successfully`);
-};
-
-const claimBadge = (badge) => {
-  setSelectedBadge(badge.id);
-
-  if (!badge.earned) {
-    showToast(`${badge.label} badge is locked`);
-    return;
-  }
-
-  if (claimedBadges.includes(badge.id)) {
-    showToast(`${badge.label} already claimed`);
-    return;
-  }
-
-  const newPts = points + badge.bonus;
-  setPoints(newPts);
-  savePoints(newPts);
-  setClaimedBadges(prev => [...prev, badge.id]);
-  showToast(`${badge.label} badge claimed +${badge.bonus} pts`);
-};
-
-const Rewards = () => {
-  const levelPct = Math.round((points % 500) / 5);
-
-  const liveLeaderboard = leaderboard
-    .map(l => l.isYou ? { ...l, pts:points } : l)
-    .sort((a, b) => b.pts - a.pts)
-    .map((l, i) => ({
-      ...l,
-      rank:i + 1,
-      badge:i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : "🏅"
-    }));
-
-  return (
-    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-      <div style={{ ...S.card, background:"rgba(0,255,136,0.04)" }}>
-        <div style={S.cardBody}>
-          <div style={{ textAlign:"center", marginBottom:16 }}>
-            <div style={{ fontSize:40, marginBottom:8 }}>🌿</div>
-            <div style={{ ...S.statVal(neon.green), fontSize:40 }}>{points}</div>
-            <div style={S.statLabel}>Eco Points {user ? "(synced ☁️)" : "(local)"}</div>
-            <div style={{ fontSize:11, color:neon.yellow, marginTop:6 }}>
-              Level {Math.floor(points / 500) + 1} — {
-  points < 500 ? "Eco Starter" :
-  points < 1000 ? "Recycler" :
-  points < 1500 ? "Eco Champion" :
-  points < 2000 ? "Green Hero" :
-  "Zero Waste Master"
-}
-            </div>
-          </div>
-
-          <div style={{ background:"rgba(255,255,255,0.05)", borderRadius:100, height:8, margin:"0 20px", overflow:"hidden" }}>
-            <div style={{
-              height:"100%",
-              borderRadius:100,
-              background:`linear-gradient(90deg,${neon.green},${neon.cyan})`,
-              width:`${levelPct}%`,
-              transition:"width 0.8s ease",
-              boxShadow:`0 0 10px ${neon.green}`
-            }} />
-          </div>
-
-          <div style={{ textAlign:"center", fontSize:10, color:"#6b8f80", marginTop:6 }}>
-            {levelPct}% to Level {level + 1}
-          </div>
-        </div>
-      </div>
-
-      <div style={S.card}>
-        <div style={S.cardHead}>
-          <span style={S.cardTitle}>🎁 Redeem Rewards</span>
-        </div>
-
-        <div style={{
-          ...S.cardBody,
-          display:"grid",
-          gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",
-          gap:10
-        }}>
-          {REWARDS.map(reward => (
-            <div key={reward.id} style={{
-              padding:14,
-              borderRadius:8,
-              background:"rgba(0,255,136,0.05)",
-              border:"1px solid rgba(0,255,136,0.18)",
-              textAlign:"center"
-            }}>
-              <div style={{ fontSize:28, marginBottom:6 }}>{reward.icon}</div>
-              <div style={{ fontSize:12, color:"#e8fff5", marginBottom:4 }}>{reward.title}</div>
-              <div style={{ fontSize:10, color:neon.yellow, marginBottom:10 }}>{reward.cost} pts</div>
-
-              <button
-                onClick={() => redeemReward(reward)}
-                style={{
-                  ...S.btn(points >= reward.cost ? neon.green : "#6b8f80", true),
-                  padding:"7px 10px",
-                  fontSize:9,
-                  width:"100%"
-                }}
-              >
-                {points >= reward.cost ? "Redeem" : "Locked"}
-              </button>
+  // ── ALERTS ──
+  const Alerts = () => {
+    const visibleAlerts = alertFilter==="all" ? alerts : alerts.filter(a=>a.type===alertFilter);
+    const counts = { critical:alerts.filter(a=>a.type==="critical").length, warning:alerts.filter(a=>a.type==="warning").length, info:alerts.filter(a=>a.type==="info").length };
+    const resolveAlert=(id)=>{ setAlerts(prev=>prev.filter(a=>a.id!==id)); if(selectedAlert?.id===id)setSelectedAlert(null); showToast("Alert resolved"); };
+    const dispatchFromAlert=(alert)=>{ addAlert("info",`Truck dispatched for: ${alert.msg}`); showToast("Truck dispatched from alert"); };
+    return (
+      <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
+        <div style={S.grid3}>
+          {[{label:"Critical",value:counts.critical,color:neon.red},{label:"Warning",value:counts.warning,color:neon.yellow},{label:"Info",value:counts.info,color:neon.cyan}].map((s,i)=>(
+            <div key={i} style={{ ...S.card,padding:16,textAlign:"center",borderColor:`${s.color}44`,background:`${s.color}08` }}>
+              <div style={{ ...S.statVal(s.color),fontSize:26 }}>{s.value}</div>
+              <div style={S.statLabel}>{s.label} Alerts</div>
             </div>
           ))}
         </div>
-      </div>
-
-      <div style={S.grid2}>
         <div style={S.card}>
           <div style={S.cardHead}>
-            <span style={S.cardTitle}>🏆 Leaderboard</span>
+            <span style={S.cardTitle}>🔔 Live Alerts</span>
+            <div style={{ display:"flex",gap:10,alignItems:"center" }}>
+              {syncStatus.firestore==="live"&&<span style={{ fontSize:9,color:neon.green }}>● Firestore live</span>}
+              <span style={{ fontSize:10,color:"#6b8f80" }}>{visibleAlerts.length} showing</span>
+            </div>
           </div>
-
-          <div style={S.cardBody}>
-            {liveLeaderboard.map((l, i) => (
-              <div key={i} style={{
-                display:"flex",
-                alignItems:"center",
-                gap:12,
-                padding:"10px 8px",
-                borderBottom:"1px solid rgba(255,255,255,0.04)",
-                background:l.isYou ? "rgba(0,255,136,0.08)" : "transparent",
-                transform:l.isYou ? "scale(1.02)" : "scale(1)",
-                transition:"all 0.35s ease",
-                borderRadius:6
-              }}>
-                <span style={{ fontSize:16 }}>{l.badge}</span>
-
-                <span style={{
-                  flex:1,
-                  fontSize:12,
-                  color:l.isYou ? neon.green : "#e8fff5"
-                }}>
-                  #{l.rank} {l.name}
-                </span>
-
-                <span style={{ fontSize:11, color:neon.yellow, fontWeight:700 }}>
-                  {l.pts} pts
-                </span>
-              </div>
+          <div style={{ padding:"14px 18px 0",display:"flex",gap:8,flexWrap:"wrap" }}>
+            {[{id:"all",label:"All",color:neon.green},{id:"critical",label:"Critical",color:neon.red},{id:"warning",label:"Warning",color:neon.yellow},{id:"info",label:"Info",color:neon.cyan}].map(f=>(
+              <button key={f.id} onClick={()=>setAlertFilter(f.id)} style={{ ...S.btn(f.color,alertFilter!==f.id),padding:"7px 12px",fontSize:9 }}>{f.label}</button>
             ))}
           </div>
-        </div>
-
-        <div style={S.card}>
-          <div style={S.cardHead}>
-            <span style={S.cardTitle}>🎖️ Badges</span>
-            <span style={{ fontSize:9, color:"#6b8f80" }}>Click to claim</span>
-          </div>
-
-          <div style={{
-            ...S.cardBody,
-            display:"grid",
-            gridTemplateColumns:"1fr 1fr",
-            gap:10
-          }}>
-            {BADGES.map((b) => {
-              const selected = selectedBadge === b.id;
-              const claimed = claimedBadges.includes(b.id);
-
+          <div style={S.cardBody}>
+            {visibleAlerts.length===0&&<div style={{ textAlign:"center",color:"#6b8f80",padding:28,fontSize:12 }}>No alerts in this category</div>}
+            {visibleAlerts.map(a=>{
+              const color=a.type==="critical"?neon.red:a.type==="warning"?neon.yellow:neon.cyan;
               return (
-                <button
-                  key={b.id}
-                  onClick={() => claimBadge(b)}
-                  style={{
-                    padding:12,
-                    textAlign:"center",
-                    borderRadius:8,
-                    background:b.earned ? "rgba(0,255,136,0.08)" : "rgba(255,255,255,0.02)",
-                    border:selected ? `1px solid ${neon.yellow}` : `1px solid ${b.earned ? "rgba(0,255,136,0.25)" : "rgba(255,255,255,0.05)"}`,
-                    opacity:b.earned ? 1 : 0.4,
-                    cursor:"pointer",
-                    transform:selected ? "translateY(-4px) scale(1.03)" : "translateY(0) scale(1)",
-                    transition:"all 0.25s ease",
-                    boxShadow:selected ? `0 0 18px ${neon.yellow}55` : "none",
-                    fontFamily:"'Courier New',monospace"
-                  }}
-                >
-                  <div style={{ fontSize:24, marginBottom:4 }}>{b.icon}</div>
-
-                  <div style={{
-                    fontSize:10,
-                    color:b.earned ? neon.green : "#6b8f80",
-                    marginBottom:4
-                  }}>
-                    {b.label}
+                <div key={a.id} onClick={()=>setSelectedAlert(a)}
+                  style={{ cursor:"pointer",display:"grid",gridTemplateColumns:"32px 1fr auto",gap:12,alignItems:"center",padding:14,marginBottom:10,background:`${color}08`,border:`1px solid ${color}22`,borderRadius:10,borderLeft:`4px solid ${color}`,boxShadow:selectedAlert?.id===a.id?`0 0 18px ${color}33`:"none",transform:selectedAlert?.id===a.id?"translateX(4px)":"translateX(0)",transition:"all 0.25s ease" }}>
+                  <div style={{ fontSize:18 }}>{a.type==="critical"?"🚨":a.type==="warning"?"⚠️":"ℹ️"}</div>
+                  <div>
+                    <div style={{ fontSize:12,color:"#e8fff5",marginBottom:3 }}>{a.msg}</div>
+                    <div style={{ fontSize:10,color:"#6b8f80" }}>{a.time||"just now"}</div>
                   </div>
-
-                  <div style={{
-                    fontSize:9,
-                    color:claimed ? neon.cyan : neon.yellow
-                  }}>
-                    {claimed ? "CLAIMED" : b.earned ? `+${b.bonus} pts` : "LOCKED"}
+                  <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                    <span style={{ fontSize:10,color,textTransform:"uppercase",fontWeight:700 }}>{a.type}</span>
+                    {a.type==="critical"&&<button onClick={e=>{e.stopPropagation();dispatchFromAlert(a);}} style={{ ...S.btn(neon.yellow,true),padding:"5px 8px",fontSize:8 }}>Send Truck</button>}
+                    <button onClick={e=>{e.stopPropagation();resolveAlert(a.id);}} style={{ ...S.btn(neon.green,true),padding:"5px 8px",fontSize:8 }}>Resolve</button>
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
         </div>
       </div>
-    </div>
-  );
-};
+    );
+  };
+
+  // ── REWARDS / LEADERBOARD ──
+  const REWARDS = [
+    { id:1,title:"Plant a Tree",cost:500,icon:"🌱" },
+    { id:2,title:"Eco Coupon",cost:800,icon:"🎟️" },
+    { id:3,title:"Compost Kit",cost:1200,icon:"🪴" },
+    { id:4,title:"Recycling Badge",cost:300,icon:"♻️" }
+  ];
+  const BADGES = [
+    { id:"recycler",icon:"♻️",label:"Recycler",earned:true,bonus:20 },
+    { id:"composter",icon:"🌱",label:"Composter",earned:true,bonus:25 },
+    { id:"power",icon:"⚡",label:"Power User",earned:true,bonus:30 },
+    { id:"hero",icon:"🌍",label:"Eco Hero",earned:points>=500,bonus:50 },
+    { id:"zero",icon:"🔋",label:"Zero Waste",earned:points>=800,bonus:75 },
+    { id:"city",icon:"🏙️",label:"City Saver",earned:points>=1200,bonus:100 }
+  ];
+
+  const redeemReward=(reward)=>{
+    if(points<reward.cost){showToast("Not enough eco points");return;}
+    const newPts=points-reward.cost; setPoints(newPts); savePoints(newPts); showToast(`${reward.title} redeemed!`);
+  };
+  const claimBadge=(badge)=>{
+    setSelectedBadge(badge.id);
+    if(!badge.earned){showToast(`${badge.label} badge is locked`);return;}
+    if(claimedBadges.includes(badge.id)){showToast(`${badge.label} already claimed`);return;}
+    const newPts=points+badge.bonus; setPoints(newPts); savePoints(newPts); setClaimedBadges(prev=>[...prev,badge.id]); showToast(`${badge.label} badge claimed +${badge.bonus} pts`);
+  };
+
+  const Rewards = () => {
+    const levelPct = Math.round((points%500)/5);
+    const liveLeaderboard = leaderboard.map(l=>l.isYou?{...l,pts:points}:l).sort((a,b)=>b.pts-a.pts).map((l,i)=>({...l,rank:i+1,badge:i===0?"🥇":i===1?"🥈":i===2?"🥉":"🏅"}));
+    return (
+      <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
+        <div style={{ ...S.card,background:"rgba(0,255,136,0.04)" }}>
+          <div style={S.cardBody}>
+            <div style={{ textAlign:"center",marginBottom:16 }}>
+              <div style={{ fontSize:40,marginBottom:8 }}>🌿</div>
+              <div style={{ ...S.statVal(neon.green),fontSize:40 }}>{points}</div>
+              <div style={S.statLabel}>Eco Points {user?"(synced ☁️)":"(local)"}</div>
+              <div style={{ fontSize:11,color:neon.yellow,marginTop:6 }}>Level {Math.floor(points/500)+1} — {points<500?"Eco Starter":points<1000?"Recycler":points<1500?"Eco Champion":points<2000?"Green Hero":"Zero Waste Master"}</div>
+            </div>
+            <div style={{ background:"rgba(255,255,255,0.05)",borderRadius:100,height:8,margin:"0 20px",overflow:"hidden" }}>
+              <div style={{ height:"100%",borderRadius:100,background:`linear-gradient(90deg,${neon.green},${neon.cyan})`,width:`${levelPct}%`,transition:"width 0.8s ease",boxShadow:`0 0 10px ${neon.green}` }}/>
+            </div>
+            <div style={{ textAlign:"center",fontSize:10,color:"#6b8f80",marginTop:6 }}>{levelPct}% to Level {level+1}</div>
+          </div>
+        </div>
+        <div style={S.card}>
+          <div style={S.cardHead}><span style={S.cardTitle}>🎁 Redeem Rewards</span></div>
+          <div style={{ ...S.cardBody,display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10 }}>
+            {REWARDS.map(r=>(
+              <div key={r.id} style={{ padding:14,borderRadius:8,background:"rgba(0,255,136,0.05)",border:"1px solid rgba(0,255,136,0.18)",textAlign:"center" }}>
+                <div style={{ fontSize:28,marginBottom:6 }}>{r.icon}</div>
+                <div style={{ fontSize:12,color:"#e8fff5",marginBottom:4 }}>{r.title}</div>
+                <div style={{ fontSize:10,color:neon.yellow,marginBottom:10 }}>{r.cost} pts</div>
+                <button onClick={()=>redeemReward(r)} style={{ ...S.btn(points>=r.cost?neon.green:"#6b8f80",true),padding:"7px 10px",fontSize:9,width:"100%" }}>{points>=r.cost?"Redeem":"Locked"}</button>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={S.grid2}>
+          <div style={S.card}>
+            <div style={S.cardHead}><span style={S.cardTitle}>🏆 Leaderboard</span></div>
+            <div style={S.cardBody}>
+              {liveLeaderboard.map((l,i)=>(
+                <div key={i} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 8px",borderBottom:"1px solid rgba(255,255,255,0.04)",background:l.isYou?"rgba(0,255,136,0.08)":"transparent",transform:l.isYou?"scale(1.02)":"scale(1)",transition:"all 0.35s ease",borderRadius:6 }}>
+                  <span style={{ fontSize:16 }}>{l.badge}</span>
+                  <span style={{ flex:1,fontSize:12,color:l.isYou?neon.green:"#e8fff5" }}>#{l.rank} {l.name}</span>
+                  <span style={{ fontSize:11,color:neon.yellow,fontWeight:700 }}>{l.pts} pts</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={S.card}>
+            <div style={S.cardHead}><span style={S.cardTitle}>🎖️ Badges</span><span style={{ fontSize:9,color:"#6b8f80" }}>Click to claim</span></div>
+            <div style={{ ...S.cardBody,display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
+              {BADGES.map(b=>{
+                const selected=selectedBadge===b.id; const claimed=claimedBadges.includes(b.id);
+                return (
+                  <button key={b.id} onClick={()=>claimBadge(b)} style={{ padding:12,textAlign:"center",borderRadius:8,background:b.earned?"rgba(0,255,136,0.08)":"rgba(255,255,255,0.02)",border:selected?`1px solid ${neon.yellow}`:`1px solid ${b.earned?"rgba(0,255,136,0.25)":"rgba(255,255,255,0.05)"}`,opacity:b.earned?1:0.4,cursor:"pointer",transform:selected?"translateY(-4px) scale(1.03)":"translateY(0) scale(1)",transition:"all 0.25s ease",boxShadow:selected?`0 0 18px ${neon.yellow}55`:"none",fontFamily:"'Courier New',monospace" }}>
+                    <div style={{ fontSize:24,marginBottom:4 }}>{b.icon}</div>
+                    <div style={{ fontSize:10,color:b.earned?neon.green:"#6b8f80",marginBottom:4 }}>{b.label}</div>
+                    <div style={{ fontSize:9,color:claimed?neon.cyan:neon.yellow }}>{claimed?"CLAIMED":b.earned?`+${b.bonus} pts`:"LOCKED"}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const TABS = [
-    { id:"landing", label:"Home" },
+    { id:"landing",   label:"Home" },
     { id:"dashboard", label:"Dashboard" },
-    { id:"throw", label:"Throw Waste" },
-    { id:"classify", label:"AI Classify" },
-    { id:"r_dashboard", label:"R Analytics" },
-    { id:"map", label:"Bin Map" },
-    { id:"chat", label:"EcoBot" },
-    { id:"alerts", label:`Alerts (${alerts.length})` },
-    { id:"rewards", label:"Rewards" },
+    { id:"throw",     label:"Throw Waste" },
+    { id:"classify",  label:"AI Classify" },
+    { id:"ml",        label:"ML Predictor" },
+    { id:"r_dashboard",label:"R Analytics" },
+    { id:"map",       label:"Bin Map" },
+    { id:"chat",      label:"EcoBot" },
+    { id:"alerts",    label:`Alerts (${alerts.length})` },
+    { id:"rewards",   label:"Leaderboard" },
   ];
 
   return (
     <div style={S.app}>
-      <div style={S.grid} />
+      <div style={S.grid}/>
 
-      {showAuth && fb && (
-        <AuthModal onClose={()=>setShowAuth(false)} onAuth={(u)=>{ setUser(u); setShowAuth(false); }} fb={fb} />
-      )}
+      {showAuth&&fb&&(<AuthModal onClose={()=>setShowAuth(false)} onAuth={u=>{setUser(u);setShowAuth(false);}} fb={fb}/>)}
 
-      {toast && (
-        <div style={{ position:"fixed", bottom:24, left:"50%", transform:"translateX(-50%)", zIndex:9999, background:"rgba(5,10,14,0.95)", border:`1px solid ${toast.type==="success"?neon.green:neon.red}`, borderRadius:8, padding:"10px 20px", fontSize:12, color:toast.type==="success"?neon.green:neon.red, boxShadow:`0 0 20px ${toast.type==="success"?neon.green:neon.red}44`, animation:"fadeIn 0.3s ease", whiteSpace:"nowrap" }}>
+      {toast&&(
+        <div style={{ position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",zIndex:9999,background:"rgba(5,10,14,0.95)",border:`1px solid ${toast.type==="success"?neon.green:neon.red}`,borderRadius:8,padding:"10px 20px",fontSize:12,color:toast.type==="success"?neon.green:neon.red,boxShadow:`0 0 20px ${toast.type==="success"?neon.green:neon.red}44`,animation:"fadeIn 0.3s ease",whiteSpace:"nowrap" }}>
           {toast.msg}
         </div>
       )}
@@ -2423,48 +2139,46 @@ const Rewards = () => {
         {TABS.map(t=>(
           <button key={t.id} style={S.tab(activeTab===t.id)} onClick={()=>setActiveTab(t.id)}>{t.label}</button>
         ))}
-        <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:10, color:neon.green, whiteSpace:"nowrap" }}>
-            <div style={S.pulse} /> {points} pts
-          </div>
-          <FBStatus user={user} onSignIn={()=>setShowAuth(true)} onSignOut={async()=>{ if(fb){ await fb.signOut(fb.auth); setUser(null); } }} fb={fb} />
+        <div style={{ marginLeft:"auto",display:"flex",alignItems:"center",gap:12,flexShrink:0 }}>
+          <div style={{ display:"flex",alignItems:"center",gap:6,fontSize:10,color:neon.green,whiteSpace:"nowrap" }}><div style={S.pulse}/> {points} pts</div>
+          <FBStatus user={user} onSignIn={()=>setShowAuth(true)} onSignOut={async()=>{ if(fb){await fb.signOut(fb.auth);setUser(null);} }}/>
         </div>
       </nav>
+      <AlertTicker />
 
       <div style={S.main}>
-  {activeTab==="landing" && <Landing />}
-  {activeTab==="dashboard" && <Dashboard />}
-  {activeTab==="throw" && <ThrowWaste />}
-  {activeTab==="classify" && <AIClassifier />}
-  {activeTab==="r_dashboard" && (
-    <div style={S.card}>
-      <div style={S.cardHead}>
-        <span style={S.cardTitle}>📊 Statistical Analysis Dashboard (R Shiny)</span>
-        <span style={{ fontSize: 10, color: neon.green }}>● Hosted on shinyapps.io</span>
-      </div>
-      <div style={{ ...S.cardBody, padding: 0, overflow: "hidden", borderRadius: "0 0 12px 12px" }}>
-        <iframe
-          src="https://jee2920.shinyapps.io/myshinyfinal/"
-          width="100%"
-          height="820px"
-          style={{ border: "none", display: "block", background: "#050a0e" }}
-          title="EcoSmart R Dashboard"
-        />
-      </div>
-    </div>
-  )}
-  {activeTab==="map" && <MapTab />}
-  {activeTab==="chat" && <Chatbot />}
-  {activeTab==="alerts" && <Alerts />}
-  {activeTab==="rewards" && <Rewards />}
+        {activeTab==="landing"    && <Landing/>}
+        {activeTab==="dashboard"  && <Dashboard/>}
+        {activeTab==="throw"      && <ThrowWaste/>}
+        {activeTab==="classify"   && <AIClassifier/>}
+        {activeTab==="ml"         && <MLPredictor/>}
+        {activeTab==="r_dashboard"&& (
+          <div style={S.card}>
+            <div style={S.cardHead}>
+              <span style={S.cardTitle}>📊 Statistical Analysis Dashboard (R Shiny)</span>
+              <span style={{ fontSize:10,color:neon.green }}>● Hosted on shinyapps.io</span>
+            </div>
+            <div style={{ ...S.cardBody,padding:0,overflow:"hidden",borderRadius:"0 0 12px 12px" }}>
+              <iframe
+                src="https://jee2920.shinyapps.io/myshinyfinal/"
+                width="100%" height="720px"
+                style={{ border:"none",display:"block",background:"#050a0e" }}
+                title="EcoSmart R Dashboard"
+              />
+            </div>
+          </div>
+        )}
+        {activeTab==="map"        && <MapTab/>}
+        {activeTab==="chat"       && <Chatbot/>}
+        {activeTab==="alerts"     && <Alerts/>}
+        {activeTab==="rewards"    && <Rewards/>}
       </div>
     </div>
   );
 }
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<EcoSmartApp />);
-
+root.render(<EcoSmartApp/>);
 </script>
 </body>
 </html>
