@@ -30,11 +30,15 @@
     button { min-height: 42px; }
     input { min-height: 42px; }
   }
-  @keyframes shimmer {
-  0% { background-position:-200% 0; }
-  100% { background-position:200% 0; }
-}
+  @keyframes alertSlide {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
 
+}
+@keyframes alertSlideSmooth {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
 @keyframes alertSlide {
   0% { transform: translateX(0%); }
   100% { transform: translateX(-50%); }
@@ -1298,11 +1302,59 @@ const AIClassifier = () => {
 
   // ── LANDING ──
   const AlertTicker = () => {
-  const alertText = alerts.length
-    ? alerts.map(a => `${a.type.toUpperCase()}: ${a.msg}`).join("     |     ")
-    : "SYSTEM NORMAL: No active alerts";
+  const systemAlerts = [
+    { type:"info", msg:"Firebase sync active" },
+    { type:"info", msg:"AI classifier ready" },
+    { type:"warning", msg:"Koramangala wet bin rising" },
+    { type:"info", msg:"Route optimizer ready" },
+    { type:"success", msg:"Eco points saved to cloud" },
+    { type:"warning", msg:"Battery check scheduled" },
+    { type:"info", msg:"Bengaluru smart bin network online" }
+  ];
 
-  const repeatedText = `LIVE ALERTS   ${alertText}     |     LIVE ALERTS   ${alertText}`;
+  const combinedAlerts = [...alerts, ...systemAlerts];
+
+  const uniqueAlerts = combinedAlerts.filter((alert, index, arr) =>
+    index === arr.findIndex(a => a.msg === alert.msg)
+  );
+
+  const displayAlerts = uniqueAlerts.slice(0, 12);
+
+  const renderTrack = (copyId) => (
+    <div
+      key={copyId}
+      style={{
+        display:"flex",
+        alignItems:"center",
+        gap:42,
+        flexShrink:0,
+        minWidth:"100%"
+      }}
+    >
+      {displayAlerts.map((a, i) => {
+        const color =
+          a.type === "critical" ? neon.red :
+          a.type === "warning" ? neon.yellow :
+          a.type === "success" ? neon.green :
+          neon.cyan;
+
+        return (
+          <span
+            key={`${copyId}-${i}`}
+            style={{
+              color,
+              fontSize:11,
+              fontWeight:700,
+              letterSpacing:1,
+              whiteSpace:"nowrap"
+            }}
+          >
+            {a.type.toUpperCase()}: {a.msg}
+          </span>
+        );
+      })}
+    </div>
+  );
 
   return (
     <div style={{
@@ -1311,28 +1363,26 @@ const AIClassifier = () => {
       zIndex:99,
       height:34,
       overflow:"hidden",
-      background:"rgba(255,61,113,0.08)",
-      borderTop:"1px solid rgba(255,61,113,0.25)",
-      borderBottom:"1px solid rgba(255,61,113,0.25)",
+      background:"rgba(0,255,136,0.06)",
+      borderTop:"1px solid rgba(0,255,136,0.2)",
+      borderBottom:"1px solid rgba(0,255,136,0.2)",
       display:"flex",
       alignItems:"center"
     }}>
       <div style={{
-        display:"inline-block",
-        minWidth:"200%",
-        whiteSpace:"nowrap",
-        color:neon.red,
-        fontSize:11,
-        fontWeight:700,
-        letterSpacing:1,
-        animation:"alertSlide 35s linear infinite"
+        display:"flex",
+        width:"max-content",
+        animation:"alertSlideSmooth 38s linear infinite"
       }}>
-        {repeatedText}
+        {renderTrack("a")}
+        {renderTrack("b")}
       </div>
     </div>
   );
 };
+      
 
+  
    
   const Landing = () => (
     <div style={{ minHeight:"90vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",textAlign:"center",padding:24 }}>
@@ -2113,9 +2163,9 @@ const AIClassifier = () => {
     { id:"landing",   label:"Home" },
     { id:"dashboard", label:"Dashboard" },
     { id:"throw",     label:"Throw Waste" },
-    { id:"classify",  label:"AI Classify" },
     { id:"ml",        label:"ML Predictor" },
     { id:"r_dashboard",label:"R Analytics" },
+    { id:"classify",  label:"AI Classify" },
     { id:"map",       label:"Bin Map" },
     { id:"chat",      label:"EcoBot" },
     { id:"alerts",    label:`Alerts (${alerts.length})` },
