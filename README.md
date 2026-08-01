@@ -2,8 +2,8 @@
 
 EcoSmart is an AI-powered Smart Waste Management System that combines **IoT, Machine Learning, Web Technologies, and Data Analytics** to improve waste collection, segregation, and monitoring. The platform provides real-time monitoring of smart bins, intelligent waste classification, route optimization, and environmental analytics through an interactive dashboard.
 
-🌐 **Live Demo:** https://ecosmart-j.netlify.app/
-https://jee2920.shinyapps.io/smartecoplanet/
+🌐 **Live Demo:** WEBSITE: https://ecosmart-j.netlify.app/
+R ANALYTICS DASHBOARD: https://jee2920.shinyapps.io/smartecoplanet/
 
 ---
 
