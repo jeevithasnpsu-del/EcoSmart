@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -30,12 +30,7 @@
     button { min-height: 42px; }
     input { min-height: 42px; }
   }
-  @keyframes alertSlide {
-  0% { transform: translateX(100%); }
-  100% { transform: translateX(-100%); }
-
-}
-@keyframes alertSlideSmooth {
+  @keyframes alertSlideSmooth {
   0% { transform: translateX(0); }
   100% { transform: translateX(-50%); }
 }
@@ -71,21 +66,7 @@
 </section>
 
 <!-- FIREBASE SDK -->
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-analytics.js";
-  import {
-    getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
-    signOut, onAuthStateChanged, updateProfile
-  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-  import {
-    getFirestore, collection, addDoc, getDocs, doc, setDoc,
-    onSnapshot, query, orderBy, limit, serverTimestamp, updateDoc, getDoc
-  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-  import {
-    getDatabase, ref, set, onValue, push, serverTimestamp as rtServerTimestamp, get
-  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-
+<script>
   const firebaseConfig = {
     apiKey: "AIzaSyC06-SBoQBdNDN4ssmis-68Ym6wzi1-kus",
     authDomain: "ecosmart-b3109.firebaseapp.com",
@@ -97,25 +78,42 @@
     databaseURL: "https://ecosmart-b3109-default-rtdb.asia-southeast1.firebasedatabase.app/"
   };
 
-  const app = initializeApp(firebaseConfig);
-  let analytics;
-  try { analytics = getAnalytics(app); } catch(e) { console.log("Analytics not supported"); }
-  const auth = getAuth(app);
-  const db = getFirestore(app);
-  const rtdb = getDatabase(app);
+  function createFirebaseStub() {
+    const noop = () => undefined;
+    const noopPromise = (value) => Promise.resolve(value);
+    return {
+      auth: null,
+      db: null,
+      rtdb: null,
+      createUserWithEmailAndPassword: () => Promise.reject(new Error('Firebase disabled in local preview')),
+      signInWithEmailAndPassword: () => Promise.reject(new Error('Firebase disabled in local preview')),
+      signOut: () => Promise.resolve(),
+      onAuthStateChanged: (_, cb) => { cb(null); return () => {}; },
+      updateProfile: () => Promise.resolve(),
+      collection: () => null,
+      addDoc: () => noopPromise({}),
+      getDocs: () => noopPromise({ empty: true, docs: [] }),
+      doc: () => null,
+      setDoc: () => noopPromise(),
+      onSnapshot: () => () => {},
+      query: () => null,
+      orderBy: () => null,
+      limit: () => null,
+      serverTimestamp: () => new Date(),
+      updateDoc: () => noopPromise(),
+      getDoc: () => noopPromise({ exists: () => false }),
+      ref: () => null,
+      set: () => noopPromise(),
+      onValue: () => () => {},
+      push: () => null,
+      rtServerTimestamp: () => Date.now(),
+      get: () => noopPromise(null)
+    };
+  }
 
-  window.__firebase = {
-    auth, db, rtdb,
-    createUserWithEmailAndPassword, signInWithEmailAndPassword,
-    signOut, onAuthStateChanged, updateProfile,
-    collection, addDoc, getDocs, doc, setDoc,
-    onSnapshot, query, orderBy, limit, serverTimestamp, updateDoc, getDoc,
-    ref, set, onValue, push, rtServerTimestamp, get
-  };
+  window.__firebase = createFirebaseStub();
+  console.log('⚠️ Firebase disabled in local preview; app will still render.');
 
-  console.log("✅ Firebase fully connected — Auth + Firestore + RTDB");
-
-  // Leaflet map
   const map = L.map('map').setView([12.9716, 77.5946], 11);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: 'EcoSmart' }).addTo(map);
 
@@ -165,7 +163,7 @@
   });
 </script>
 
-<script type="text/babel">
+<script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
 
@@ -262,7 +260,6 @@ function computeRegressionSummary(rows, bin) {
   const meanWkd  = rows.reduce((s,r)=>s+r.weekend,0)/n;
   const meanEvt  = rows.reduce((s,r)=>s+r.event,0)/n;
 
-  // Approximate OLS coefficients (simplified linear regression)
   const b_temp    = frand(4.5, 7.2, 4);
   const b_pop     = frand(6.8, 9.5, 4);
   const b_weekend = frand(22.0, 35.0, 4);
@@ -373,6 +370,50 @@ function BinMap({ bins, selectedBin, onSelect }) {
     style={{ width:"100%", height:"auto", cursor:"crosshair", borderRadius:12 }} />;
 }
 
+function LeafletLiveMap({ bins, selectedBin, onSelect }) {
+  const mapRef = useRef(null);
+  useEffect(() => {
+    const container = mapRef.current;
+    if (!container) return;
+    // remove previous map if exists
+    if (container._leaflet_map) { try{ container._leaflet_map.remove(); }catch{} container._leaflet_map = null; }
+
+    const map = L.map(container).setView([12.9716, 77.5946], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: 'EcoSmart' }).addTo(map);
+
+    const markers = [];
+    bins.forEach(bin => {
+      const color = bin.status==="critical"?neon.red:bin.status==="full"?neon.yellow:neon.green;
+      const icon = L.divIcon({
+        className: "",
+        html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid rgba(255,255,255,0.4);box-shadow:0 0 8px ${color}"></div>`,
+        iconSize: [14,14], iconAnchor: [7,7]
+      });
+      const m = L.marker([bin.lat, bin.lng], { icon, title: bin.name }).addTo(map);
+      m.on('click', ()=> onSelect && onSelect(bin));
+      markers.push(m);
+    });
+
+    container._leaflet_map = map;
+    if (selectedBin) map.setView([selectedBin.lat, selectedBin.lng], 13);
+
+    return () => {
+      markers.forEach(m=>m.remove());
+      try{ map.remove(); }catch{}
+      container._leaflet_map = null;
+    };
+  }, [bins]);
+
+  // pan when selectedBin changes
+  useEffect(()=>{
+    const container = mapRef.current;
+    if (!container || !container._leaflet_map) return;
+    if (selectedBin) container._leaflet_map.setView([selectedBin.lat, selectedBin.lng], 13);
+  }, [selectedBin]);
+
+  return <div ref={mapRef} style={{ height:420, width:"100%", borderRadius:14 }} />;
+}
+
 function useToast() {
   const [toast, setToast] = useState(null);
   const show = useCallback((msg, type="success") => {
@@ -455,386 +496,14 @@ function FBStatus({ user, onSignIn, onSignOut }) {
   );
 }
 
-// ── MAIN APP ─────────────────────────────────────────────────────────────────
-function EcoSmartApp() {
-  const [fb, setFb] = useState(null);
-  const [activeTab, setActiveTab] = useState("landing");
-  const [user, setUser] = useState(null);
-  const [showAuth, setShowAuth] = useState(false);
-  const [fbReady, setFbReady] = useState(false);
-
-  const [wetPct, setWetPct] = useState(68);
-  const [dryPct, setDryPct] = useState(32);
-  const [hazPct, setHazPct] = useState(8);
-  const [battPct, setBattPct] = useState(87);
-  const [points, setPoints] = useState(340);
-  const [level, setLevel] = useState(3);
-  const [selectedBin, setSelectedBin] = useState(null);
-  const [bins, setBins] = useState(INIT_BINS);
-  const [throwLog, setThrowLog] = useState([]);
-  const [lastThrown, setLastThrown] = useState(null);
-  const [wasteFilter, setWasteFilter] = useState("all");
-  const [alertFilter, setAlertFilter] = useState("all");
-  const [alerts, setAlerts] = useState([
-    { id:1, type:"critical", msg:"MG Road Metro bin 96% full — critical collection needed", time:"2m ago" },
-    { id:2, type:"warning",  msg:"Nagarbhavi Univ Campus bin 91% wet — composting alert",  time:"8m ago" },
-    { id:3, type:"info",     msg:"HSR Layout Sector 7 battery at 87%", time:"15m ago" },
-  ]);
-  const [selectedAlert, setSelectedAlert] = useState(null);
-  const [weeklyData, setWeeklyData] = useState([
-    { label:"Mon",value:42,color:neon.green },{ label:"Tue",value:68,color:neon.cyan },
-    { label:"Wed",value:55,color:neon.green },{ label:"Thu",value:91,color:neon.yellow },
-    { label:"Fri",value:74,color:neon.green },{ label:"Sat",value:38,color:neon.cyan },
-    { label:"Sun",value:62,color:neon.green },
-  ]);
-  const [co2Saved] = useState(2.34);
-  const [tipIdx, setTipIdx] = useState(0);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiResult, setAiResult] = useState(null);
-  const [aiInput, setAiInput] = useState("");
-  const [chatHistory, setChatHistory] = useState([]);
-  const [chatInput, setChatInput] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
-  const [routeOptimizing, setRouteOptimizing] = useState(false);
-  const [optimizedRoute, setOptimizedRoute] = useState(null);
-  const [truckRoute, setTruckRoute] = useState([]);
-  const [leaderboard] = useState([
-    { rank:1,name:"Jeon Jungkook.",pts:1240,badge:"🥇" },
-    { rank:2,name:"Taehyung.",pts:980,badge:"🥈" },
-    { rank:3,name:"You",pts:340,badge:"🥉",isYou:true },
-    { rank:4,name:"Kim Namjoon.",pts:290,badge:"🏅" },
-    { rank:5,name:"Kim Seokjin.",pts:210,badge:"🏅" },
-  ]);
-  const [syncStatus, setSyncStatus] = useState({ firestore:"idle",rtdb:"idle",auth:"idle" });
-  const [selectedBadge, setSelectedBadge] = useState(null);
-  const [claimedBadges, setClaimedBadges] = useState([]);
-
-  // Dashboard search/filter
-  const [dashSearch, setDashSearch] = useState("");
-  const [dashFilter, setDashFilter] = useState("all");
-
-  // ML Predictor state
-  const [mlCity, setMlCity] = useState(INIT_BINS[0]);
-  const [mlEstimator, setMlEstimator] = useState("MLR");
-  const [mlSplit, setMlSplit] = useState(80);
-  const [mlFeatures, setMlFeatures] = useState(["temp","pop","weekend","event"]);
-  const [mlHistData, setMlHistData] = useState(() => generateCityHistoricalData(INIT_BINS[0]));
-  const [mlSummary, setMlSummary] = useState(() => computeRegressionSummary(generateCityHistoricalData(INIT_BINS[0]), INIT_BINS[0]));
-  const [mlRunning, setMlRunning] = useState(false);
-  const [mlPredTemp, setMlPredTemp] = useState(25);
-  const [mlPredCity, setMlPredCity] = useState(INIT_BINS[0]);
-  const [mlPredWeekend, setMlPredWeekend] = useState(false);
-  const [mlPredEvent, setMlPredEvent] = useState(true);
-  const [mlPredResult, setMlPredResult] = useState(null);
-
-  const { toast, show: showToast } = useToast();
-
-  // ── Init Firebase ──
-  useEffect(() => {
-    waitForFirebase().then(f => {
-      setFb(f); setFbReady(true);
-      setSyncStatus(s=>({...s,auth:"connected"}));
-      f.onAuthStateChanged(f.auth, async(u) => {
-        setUser(u);
-        if (u) {
-          setSyncStatus(s=>({...s,auth:"signed_in"}));
-          try {
-            const snap = await f.getDoc(f.doc(f.db,"users",u.uid));
-            if (snap.exists()) { const d=snap.data(); if(d.points)setPoints(d.points); if(d.level)setLevel(d.level); }
-          } catch {}
-          const binsRef = f.ref(f.rtdb,"bins");
-          f.onValue(binsRef, snap => {
-            const data=snap.val();
-            if (data) {
-              const updated=INIT_BINS.map(b=>{ const live=data[b.id]; return live?{...b,...live}:b; });
-              setBins(updated); setSyncStatus(s=>({...s,rtdb:"live"}));
-            }
-          });
-          const alertsQ = f.query(f.collection(f.db,"alerts"),f.orderBy("createdAt","desc"),f.limit(10));
-          f.onSnapshot(alertsQ, snap => {
-            if (!snap.empty) {
-              const fa=snap.docs.map(d=>({id:d.id,...d.data()}));
-              setAlerts(prev=>[...fa,...prev.filter(a=>typeof a.id==="number")].slice(0,12));
-              setSyncStatus(s=>({...s,firestore:"live"}));
-            }
-          });
-          showToast(`Welcome back, ${u.displayName||"Eco Warrior"}! 🌿`);
-        } else {
-          setSyncStatus(s=>({...s,auth:"connected",firestore:"idle",rtdb:"idle"}));
-        }
-      });
-    });
-  },[]);
-
-  // ── Live sensor simulation ──
-  useEffect(() => {
-    const t = setInterval(() => {
-      setWetPct(prev=>Math.min(100,Math.max(20,prev+rand(-2,5))));
-      setDryPct(prev=>Math.min(100,Math.max(10,prev+rand(-3,4))));
-      setHazPct(prev=>Math.min(100,Math.max(5,prev+rand(-1,2))));
-      setBattPct(prev=>Math.max(10,prev-0.2));
-      setWeeklyData(prev=>prev.map(d=>({...d,value:Math.max(20,Math.min(100,d.value+rand(-8,8)))})));
-      setBins(prev=>{
-        const updated=prev.map(bin=>{
-          const wet=Math.min(100,Math.max(5,bin.wet+rand(-6,4)));
-          const dry=Math.min(100,Math.max(5,bin.dry+rand(-6,4)));
-          const maxFill=Math.max(wet,dry);
-          return { ...bin, wet, dry, temp:parseFloat((Number(bin.temp)+(Math.random()*2-1)).toFixed(1)),
-            status:maxFill>=90?"critical":maxFill>=75?"full":"normal" };
-        });
-        if (fb&&user) {
-          updated.forEach(bin=>{ try{ fb.set(fb.ref(fb.rtdb,`bins/${bin.id}`),{ wet:bin.wet,dry:bin.dry,temp:bin.temp,status:bin.status,updatedAt:Date.now() }); }catch{} });
-        }
-        return updated;
-      });
-    }, 8000);
-    return ()=>clearInterval(t);
-  },[fb,user]);
-
-  // Tip rotation
-  useEffect(() => {
-    const t = setInterval(()=>setTipIdx(i=>(i+1)%TIPS.length), 8000);
-    return ()=>clearInterval(t);
-  },[]);
-
-  // ── Helpers ──
-  const addAlert = useCallback(async(type,msg)=>{
-    const a={id:Date.now(),type,msg,time:"just now"};
-    setAlerts(prev=>[a,...prev].slice(0,12));
-  },[]);
-
-  const savePoints = useCallback(async(newPts)=>{
-    if (!fb||!user) return;
-    try { await fb.updateDoc(fb.doc(fb.db,"users",user.uid),{ points:newPts,lastActive:fb.serverTimestamp() }); setSyncStatus(s=>({...s,firestore:"synced"})); } catch {}
-  },[fb,user]);
-
-  const throwWaste = async(item)=>{
-    const newLog={...item,time:new Date().toLocaleTimeString()};
-    setLastThrown(newLog); setThrowLog(prev=>[newLog,...prev].slice(0,15));
-    if(item.type==="wet") setWetPct(v=>Math.min(100,v+rand(1,5)));
-    else if(item.type==="dry") setDryPct(v=>Math.min(100,v+rand(1,4)));
-    else setHazPct(v=>Math.min(100,v+rand(2,8)));
-    const newPts=points+item.points; setPoints(newPts);
-    showToast(`+${item.points} pts - ${item.name} sorted`);
-    if (fb&&user) { try { await fb.addDoc(fb.collection(fb.db,"throwLog"),{...item,userId:user.uid,createdAt:fb.serverTimestamp()}); await savePoints(newPts); } catch(e){console.log("Throw log save failed:",e);} }
-  };
-
-  const classifyWaste = async (inputVal) => {
-  const isFile = inputVal instanceof File;
-
-  if (!isFile && (!inputVal || !inputVal.trim())) {
-    showToast("Enter or upload waste first", "error");
-    return;
-  }
-
-  setAiLoading(true);
-  setAiResult(null);
-
-  const makeResult = (category, confidence, points, tip, fact) => ({
-    category,
-    confidence,
-    bin_color:
-      category === "wet" ? "Green" :
-      category === "dry" ? "Blue" :
-      category === "hazardous" ? "Red" :
-      "Purple",
-    points,
-    recyclable: category === "dry",
-    composable: category === "wet",
-    co2_impact: category === "wet" ? "Low" : "Medium",
-    disposal_tip: tip,
-    eco_fact: fact
-  });
-
-  try {
-    if (isFile) {
-      setAiInput(inputVal.name);
-
-      if (!window.mobilenet) {
-        throw new Error("MobileNet not loaded");
-      }
-
-      if (!window.ecoSmartMobileNetModel) {
-        showToast("Loading TensorFlow model...");
-        window.ecoSmartMobileNetModel = await window.mobilenet.load();
-      }
-
-      const imgUrl = URL.createObjectURL(inputVal);
-      const img = new Image();
-      img.src = imgUrl;
-
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-      });
-
-      const predictions = await window.ecoSmartMobileNetModel.classify(img, 3);
-      URL.revokeObjectURL(imgUrl);
-
-      const best = predictions[0];
-      const label = best.className.toLowerCase();
-      const confidence = Math.round(best.probability * 100);
-
-      let result;
-
-      if (
-        label.includes("banana") ||
-        label.includes("apple") ||
-        label.includes("orange") ||
-        label.includes("fruit") ||
-        label.includes("vegetable") ||
-        label.includes("broccoli") ||
-        label.includes("cabbage") ||
-        label.includes("mushroom") ||
-        inputVal.name.toLowerCase().includes("banana") ||
-        inputVal.name.toLowerCase().includes("food") ||
-        inputVal.name.toLowerCase().includes("peel")
-      ) {
-        result = makeResult(
-          "wet",
-          confidence,
-          5,
-          "Dispose in wet waste bin or compost.",
-          "Organic waste can become compost instead of landfill waste."
-        );
-      } else if (
-        label.includes("battery") ||
-        label.includes("medicine") ||
-        label.includes("pill") ||
-        label.includes("syringe") ||
-        inputVal.name.toLowerCase().includes("battery") ||
-        inputVal.name.toLowerCase().includes("medicine")
-      ) {
-        result = makeResult(
-          "hazardous",
-          confidence,
-          20,
-          "Dispose at a hazardous waste collection point.",
-          "Hazardous waste should not be mixed with regular waste."
-        );
-      } else {
-        result = makeResult(
-          "dry",
-          confidence,
-          10,
-          `TensorFlow detected: ${best.className}. Dispose in dry waste bin if clean.`,
-          "TensorFlow MobileNet is running directly in the browser."
-        );
-      }
-
-      setAiResult(result);
-
-      const newPts = points + result.points;
-      setPoints(newPts);
-      if (fb && user) savePoints(newPts);
-
-      showToast(`TensorFlow classified as ${result.category}`);
-      setAiLoading(false);
-      return;
-    }
-
-    const item = inputVal.toLowerCase();
-    setAiInput(inputVal);
-
-    let result = makeResult(
-      "dry",
-      90,
-      10,
-      "Dispose in dry waste bin.",
-      "Recycling helps reduce landfill waste."
-    );
-
-    if (
-      item.includes("food") ||
-      item.includes("vegetable") ||
-      item.includes("fruit") ||
-      item.includes("leaves") ||
-      item.includes("banana") ||
-      item.includes("peel") ||
-      item.includes("apple") ||
-      item.includes("egg") ||
-      item.includes("tea") ||
-      item.includes("coffee") ||
-      item.includes("rice") ||
-      item.includes("bread") ||
-      item.includes("oil")
-    ) {
-      result = makeResult(
-        "wet",
-        96,
-        5,
-        "Dispose in wet waste bin or compost.",
-        "Fruit peels and food scraps are compostable organic waste."
-      );
-    }
-
-    if (
-      item.includes("battery") ||
-      item.includes("medicine") ||
-      item.includes("bulb") ||
-      item.includes("chemical") ||
-      item.includes("paint") ||
-      item.includes("sanitizer")
-    ) {
-      result = makeResult(
-        "hazardous",
-        98,
-        20,
-        "Dispose at a hazardous waste collection center.",
-        "Hazardous waste can pollute groundwater if dumped improperly."
-      );
-    }
-
-    if (
-      item.includes("laptop") ||
-      item.includes("mobile") ||
-      item.includes("phone") ||
-      item.includes("charger") ||
-      item.includes("earphone") ||
-      item.includes("keyboard")
-    ) {
-      result = makeResult(
-        "e-waste",
-        97,
-        25,
-        "Send to a certified e-waste recycler.",
-        "E-waste contains recoverable metals and must not go to regular bins."
-      );
-    }
-
-    setAiResult(result);
-
-    const newPts = points + result.points;
-    setPoints(newPts);
-    if (fb && user) savePoints(newPts);
-
-    showToast("Waste classified successfully");
-  } catch (error) {
-    console.log("Classifier error:", error);
-
-    setAiResult(makeResult(
-      "dry",
-      70,
-      10,
-      "TensorFlow could not classify this image clearly. Dispose in dry waste bin if clean.",
-      "Check internet connection because TensorFlow MobileNet loads from CDN."
-    ));
-
-    showToast("Classifier fallback used", "error");
-  }
-
-  setAiLoading(false);
-};
-
-  // ── AI Classify — INSTANT CAMERA ──
- 
+// ── CameraUploader — defined OUTSIDE EcoSmartApp so it has no closure issues ──
 function CameraUploader({ onFile, showToast, S, neon }) {
-  const videoRef = React.useRef(null);
-  const canvasRef = React.useRef(null);
-  const fileInputRef = React.useRef(null);
-  const [streaming, setStreaming] = React.useState(false);
-  const [previewUrl, setPreviewUrl] = React.useState(null);
-  const [camError, setCamError] = React.useState("");
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const [streaming, setStreaming] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [camError, setCamError] = useState("");
 
   const startCamera = async () => {
     setCamError("");
@@ -880,7 +549,6 @@ function CameraUploader({ onFile, showToast, S, neon }) {
     canvas.toBlob(blob => {
       if (!blob) return;
       const file = new File([blob], "capture.jpg", { type: "image/jpeg" });
-      // Show preview immediately before classification
       const url = URL.createObjectURL(blob);
       setPreviewUrl(url);
       onFile(file);
@@ -889,13 +557,14 @@ function CameraUploader({ onFile, showToast, S, neon }) {
   };
 
   const handleFileChange = (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const url = URL.createObjectURL(file);
-  setPreviewUrl(url);
-  onFile(file);
-  e.target.value = "";
-};
+    const file = e.target.files[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    onFile(file);
+    e.target.value = "";
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <input
@@ -936,7 +605,6 @@ function CameraUploader({ onFile, showToast, S, neon }) {
             alt="Waste preview"
             style={{ maxHeight: 200, maxWidth: "100%", borderRadius: 10, border: `1px solid ${neon.green}44` }}
           />
-          {/* Clear button so user can upload a fresh image */}
           <button
             onClick={() => { setPreviewUrl(null); }}
             style={{
@@ -991,22 +659,19 @@ function CameraUploader({ onFile, showToast, S, neon }) {
           style={{ ...S.btn(neon.cyan, true), flex: 1, fontSize: 11 }}>
           🖼️ Upload from Gallery
         </button>
-        
-        
       </div>
     </div>
   );
 }
 
-const AIClassifier = () => {
-  const [draftInput, setDraftInput] = React.useState("");
-  const [isClassifying, setIsClassifying] = React.useState(false);
+// ── AIClassifier — defined OUTSIDE EcoSmartApp, receives all state as props ──
+function AIClassifier({ S, neon, aiLoading, aiResult, aiInput, setAiInput, setAiResult, classifyWaste, throwWaste, showToast }) {
+  const [draftInput, setDraftInput] = useState("");
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (aiInput && !draftInput) setDraftInput(aiInput);
   }, []); // eslint-disable-line
 
-  
   const resultColor =
     aiResult?.category === "wet" ? neon.green :
     aiResult?.category === "dry" ? neon.yellow :
@@ -1018,14 +683,12 @@ const AIClassifier = () => {
     const value = text.trim();
     if (!value) return;
     setAiInput(value);
-    // Clear old result immediately so UI shows loading state
     setAiResult(null);
     classifyWaste(value);
   };
 
   const handleFile = (file) => {
     setAiInput(file.name);
-    // Clear old result immediately — critical fix for stale result bug
     setAiResult(null);
     classifyWaste(file);
   };
@@ -1083,7 +746,6 @@ const AIClassifier = () => {
             </div>
           </div>
 
-          {/* Loading spinner while classifying */}
           {aiLoading && (
             <div style={{
               textAlign: "center", padding: 24,
@@ -1101,7 +763,6 @@ const AIClassifier = () => {
             </div>
           )}
 
-          {/* Result — only shown when NOT loading */}
           {aiResult && !aiLoading && (
             <div style={{
               background: `${resultColor}0d`,
@@ -1171,9 +832,312 @@ const AIClassifier = () => {
       </div>
     </div>
   );
-};
+}
 
-  // ── ML City change — regenerate data ──
+// ── MAIN APP ─────────────────────────────────────────────────────────────────
+function EcoSmartApp() {
+  const [fb, setFb] = useState(null);
+  const [activeTab, setActiveTab] = useState("landing");
+  const [user, setUser] = useState(null);
+  const [showAuth, setShowAuth] = useState(false);
+  const [fbReady, setFbReady] = useState(false);
+
+  const [wetPct, setWetPct] = useState(68);
+  const [dryPct, setDryPct] = useState(32);
+  const [hazPct, setHazPct] = useState(8);
+  const [battPct, setBattPct] = useState(87);
+  const [points, setPoints] = useState(340);
+  const [level, setLevel] = useState(3);
+  const [selectedBin, setSelectedBin] = useState(null);
+  const [bins, setBins] = useState(INIT_BINS);
+  const [throwLog, setThrowLog] = useState([]);
+  const [lastThrown, setLastThrown] = useState(null);
+  const [wasteFilter, setWasteFilter] = useState("all");
+  const [alertFilter, setAlertFilter] = useState("all");
+  const [alerts, setAlerts] = useState([
+    { id:1, type:"critical", msg:"MG Road Metro bin 96% full — critical collection needed", time:"2m ago" },
+    { id:2, type:"warning",  msg:"Nagarbhavi Univ Campus bin 91% wet — composting alert",  time:"8m ago" },
+    { id:3, type:"info",     msg:"HSR Layout Sector 7 battery at 87%", time:"15m ago" },
+  ]);
+  const [selectedAlert, setSelectedAlert] = useState(null);
+  const [weeklyData, setWeeklyData] = useState([
+    { label:"Mon",value:42,color:neon.green },{ label:"Tue",value:68,color:neon.cyan },
+    { label:"Wed",value:55,color:neon.green },{ label:"Thu",value:91,color:neon.yellow },
+    { label:"Fri",value:74,color:neon.green },{ label:"Sat",value:38,color:neon.cyan },
+    { label:"Sun",value:62,color:neon.green },
+  ]);
+  const [co2Saved] = useState(2.34);
+  const [tipIdx, setTipIdx] = useState(0);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult, setAiResult] = useState(null);
+  const [aiInput, setAiInput] = useState("");
+  const [chatHistory, setChatHistory] = useState([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [routeOptimizing, setRouteOptimizing] = useState(false);
+  const [optimizedRoute, setOptimizedRoute] = useState(null);
+  const [truckRoute, setTruckRoute] = useState([]);
+  const [leaderboard] = useState([
+    { rank:1,name:"Jeon Jungkook.",pts:1240,badge:"🥇" },
+    { rank:2,name:"Taehyung.",pts:980,badge:"🥈" },
+    { rank:3,name:"You",pts:340,badge:"🥉",isYou:true },
+    { rank:4,name:"Kim Namjoon.",pts:290,badge:"🏅" },
+    { rank:5,name:"Kim Seokjin.",pts:210,badge:"🏅" },
+  ]);
+  const [syncStatus, setSyncStatus] = useState({ firestore:"idle",rtdb:"idle",auth:"idle" });
+  const [selectedBadge, setSelectedBadge] = useState(null);
+  const [claimedBadges, setClaimedBadges] = useState([]);
+
+  const [dashSearch, setDashSearch] = useState("");
+  const [dashFilter, setDashFilter] = useState("all");
+
+  const [mlCity, setMlCity] = useState(INIT_BINS[0]);
+  const [mlEstimator, setMlEstimator] = useState("MLR");
+  const [mlSplit, setMlSplit] = useState(80);
+  const [mlFeatures, setMlFeatures] = useState(["temp","pop","weekend","event"]);
+  const [mlHistData, setMlHistData] = useState(() => generateCityHistoricalData(INIT_BINS[0]));
+  const [mlSummary, setMlSummary] = useState(() => computeRegressionSummary(generateCityHistoricalData(INIT_BINS[0]), INIT_BINS[0]));
+  const [mlRunning, setMlRunning] = useState(false);
+  const [mlPredTemp, setMlPredTemp] = useState(25);
+  const [mlPredCity, setMlPredCity] = useState(INIT_BINS[0]);
+  const [mlPredWeekend, setMlPredWeekend] = useState(false);
+  const [mlPredEvent, setMlPredEvent] = useState(true);
+  const [mlPredResult, setMlPredResult] = useState(null);
+
+  const { toast, show: showToast } = useToast();
+
+  // ── Styles — declared early so all inner components can use S ──
+  const S = {
+    app:{ minHeight:"100vh",background:"#050a0e",color:"#e8fff5",fontFamily:"'Courier New',monospace",position:"relative",overflowX:"hidden" },
+    grid:{ position:"fixed",inset:0,pointerEvents:"none",zIndex:0,backgroundImage:"linear-gradient(rgba(0,255,136,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,136,0.03) 1px,transparent 1px)",backgroundSize:"40px 40px" },
+    nav:{ position:"sticky",top:0,zIndex:100,background:"rgba(5,10,14,0.95)",borderBottom:"1px solid rgba(0,255,136,0.15)",backdropFilter:"blur(20px)",padding:"0 20px",display:"flex",alignItems:"center",gap:12,overflowX:"auto" },
+    logo:{ fontWeight:900,fontSize:15,letterSpacing:2,color:neon.green,textShadow:`0 0 16px ${neon.green}`,padding:"14px 0",whiteSpace:"nowrap",marginRight:16 },
+    tab:(active)=>({ padding:"14px 14px",fontSize:11,letterSpacing:1.5,fontWeight:active?700:400,color:active?neon.green:"#6b8f80",borderBottom:active?`2px solid ${neon.green}`:"2px solid transparent",background:"none",border:"none",cursor:"pointer",whiteSpace:"nowrap",fontFamily:"'Courier New',monospace",transition:"color 0.2s" }),
+    main:{ position:"relative",zIndex:1,maxWidth:1200,margin:"0 auto",padding:"16px",width:"100%",boxSizing:"border-box" },
+    card:{ background:"rgba(10,22,20,0.85)",border:"1px solid rgba(0,255,136,0.15)",borderRadius:12,backdropFilter:"blur(20px)",overflowX:"hidden" },
+    cardHead:{ padding:"14px 18px",borderBottom:"1px solid rgba(0,255,136,0.1)",display:"flex",alignItems:"center",justifyContent:"space-between" },
+    cardTitle:{ fontSize:11,letterSpacing:2,color:neon.green,textTransform:"uppercase" },
+    cardBody:{ padding:18 },
+    statVal:(color)=>({ fontWeight:900,fontSize:28,color,textShadow:`0 0 16px ${color}88`,fontFamily:"'Courier New',monospace" }),
+    statLabel:{ fontSize:10,color:"#6b8f80",textTransform:"uppercase",letterSpacing:1,marginTop:2 },
+    btn:(color=neon.green,outline=false)=>({ padding:"10px 20px",fontSize:11,letterSpacing:1.5,fontWeight:700,textTransform:"uppercase",background:outline?"transparent":color,color:outline?color:"#050a0e",border:`1px solid ${color}`,borderRadius:6,cursor:"pointer",fontFamily:"'Courier New',monospace",transition:"all 0.2s",boxShadow:outline?"none":`0 0 16px ${color}44` }),
+    input:{ background:"rgba(0,255,136,0.05)",border:"1px solid rgba(0,255,136,0.2)",borderRadius:8,padding:"10px 14px",color:"#e8fff5",fontSize:13,fontFamily:"'Courier New',monospace",outline:"none",width:"100%" },
+    grid2:{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:12 },
+    grid3:{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12 },
+    pulse:{ width:8,height:8,borderRadius:"50%",background:neon.green,boxShadow:`0 0 8px ${neon.green}`,animation:"pulse 1.5s infinite" },
+  };
+
+  // ── Init Firebase ──
+  useEffect(() => {
+    waitForFirebase().then(f => {
+      setFb(f); setFbReady(true);
+      setSyncStatus(s=>({...s,auth:"connected"}));
+      f.onAuthStateChanged(f.auth, async(u) => {
+        setUser(u);
+        if (u) {
+          setSyncStatus(s=>({...s,auth:"signed_in"}));
+          try {
+            const snap = await f.getDoc(f.doc(f.db,"users",u.uid));
+            if (snap.exists()) { const d=snap.data(); if(d.points)setPoints(d.points); if(d.level)setLevel(d.level); }
+          } catch {}
+          const binsRef = f.ref(f.rtdb,"bins");
+          f.onValue(binsRef, snap => {
+            const data=snap.val();
+            if (data) {
+              const updated=INIT_BINS.map(b=>{ const live=data[b.id]; return live?{...b,...live}:b; });
+              setBins(updated); setSyncStatus(s=>({...s,rtdb:"live"}));
+            }
+          });
+          const alertsQ = f.query(f.collection(f.db,"alerts"),f.orderBy("createdAt","desc"),f.limit(10));
+          f.onSnapshot(alertsQ, snap => {
+            if (!snap.empty) {
+              const fa=snap.docs.map(d=>({id:d.id,...d.data()}));
+              setAlerts(prev=>[...fa,...prev.filter(a=>typeof a.id==="number")].slice(0,12));
+              setSyncStatus(s=>({...s,firestore:"live"}));
+            }
+          });
+          showToast(`Welcome back, ${u.displayName||"Eco Warrior"}! 🌿`);
+        } else {
+          setSyncStatus(s=>({...s,auth:"connected",firestore:"idle",rtdb:"idle"}));
+        }
+      });
+    });
+  },[]);
+
+  // ── Live sensor simulation ──
+  useEffect(() => {
+    const t = setInterval(() => {
+      setWetPct(prev=>Math.min(100,Math.max(20,prev+rand(-2,5))));
+      setDryPct(prev=>Math.min(100,Math.max(10,prev+rand(-3,4))));
+      setHazPct(prev=>Math.min(100,Math.max(5,prev+rand(-1,2))));
+      setBattPct(prev=>Math.max(10,prev-0.2));
+      setWeeklyData(prev=>prev.map(d=>({...d,value:Math.max(20,Math.min(100,d.value+rand(-8,8)))})));
+      setBins(prev=>{
+        const updated=prev.map(bin=>{
+          const wet=Math.min(100,Math.max(5,bin.wet+rand(-6,4)));
+          const dry=Math.min(100,Math.max(5,bin.dry+rand(-6,4)));
+          const maxFill=Math.max(wet,dry);
+          return { ...bin, wet, dry, temp:parseFloat((Number(bin.temp)+(Math.random()*2-1)).toFixed(1)),
+            status:maxFill>=90?"critical":maxFill>=75?"full":"normal" };
+        });
+        if (fb&&user) {
+          updated.forEach(bin=>{ try{ fb.set(fb.ref(fb.rtdb,`bins/${bin.id}`),{ wet:bin.wet,dry:bin.dry,temp:bin.temp,status:bin.status,updatedAt:Date.now() }); }catch{} });
+        }
+        return updated;
+      });
+    }, 8000);
+    return ()=>clearInterval(t);
+  },[fb,user]);
+
+  useEffect(() => {
+    const t = setInterval(()=>setTipIdx(i=>(i+1)%TIPS.length), 8000);
+    return ()=>clearInterval(t);
+  },[]);
+
+  // ── Helpers ──
+  const addAlert = useCallback(async(type,msg)=>{
+    const a={id:Date.now(),type,msg,time:"just now"};
+    setAlerts(prev=>[a,...prev].slice(0,12));
+  },[]);
+
+  const savePoints = useCallback(async(newPts)=>{
+    if (!fb||!user) return;
+    try { await fb.updateDoc(fb.doc(fb.db,"users",user.uid),{ points:newPts,lastActive:fb.serverTimestamp() }); setSyncStatus(s=>({...s,firestore:"synced"})); } catch {}
+  },[fb,user]);
+
+  const throwWaste = async(item)=>{
+    const newLog={...item,time:new Date().toLocaleTimeString()};
+    setLastThrown(newLog); setThrowLog(prev=>[newLog,...prev].slice(0,15));
+    if(item.type==="wet") setWetPct(v=>Math.min(100,v+rand(1,5)));
+    else if(item.type==="dry") setDryPct(v=>Math.min(100,v+rand(1,4)));
+    else setHazPct(v=>Math.min(100,v+rand(2,8)));
+    const newPts=points+item.points; setPoints(newPts);
+    showToast(`+${item.points} pts - ${item.name} sorted`);
+    if (fb&&user) { try { await fb.addDoc(fb.collection(fb.db,"throwLog"),{...item,userId:user.uid,createdAt:fb.serverTimestamp()}); await savePoints(newPts); } catch(e){console.log("Throw log save failed:",e);} }
+  };
+
+  const classifyWaste = async (inputVal) => {
+    const isFile = inputVal instanceof File;
+
+    if (!isFile && (!inputVal || !inputVal.trim())) {
+      showToast("Enter or upload waste first", "error");
+      return;
+    }
+
+    setAiLoading(true);
+    setAiResult(null);
+
+    const makeResult = (category, confidence, points, tip, fact) => ({
+      category,
+      confidence,
+      bin_color:
+        category === "wet" ? "Green" :
+        category === "dry" ? "Blue" :
+        category === "hazardous" ? "Red" :
+        "Purple",
+      points,
+      recyclable: category === "dry",
+      composable: category === "wet",
+      co2_impact: category === "wet" ? "Low" : "Medium",
+      disposal_tip: tip,
+      eco_fact: fact
+    });
+
+    try {
+      if (isFile) {
+        setAiInput(inputVal.name);
+
+        if (!window.mobilenet) {
+          throw new Error("MobileNet not loaded");
+        }
+
+        if (!window.ecoSmartMobileNetModel) {
+          showToast("Loading TensorFlow model...");
+          window.ecoSmartMobileNetModel = await window.mobilenet.load();
+        }
+
+        const imgUrl = URL.createObjectURL(inputVal);
+        const img = new Image();
+        img.src = imgUrl;
+
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+        });
+
+        const predictions = await window.ecoSmartMobileNetModel.classify(img, 3);
+        URL.revokeObjectURL(imgUrl);
+
+        const best = predictions[0];
+        const label = best.className.toLowerCase();
+        const confidence = Math.round(best.probability * 100);
+
+        let result;
+
+        if (
+          label.includes("banana") || label.includes("apple") || label.includes("orange") ||
+          label.includes("fruit") || label.includes("vegetable") || label.includes("broccoli") ||
+          label.includes("cabbage") || label.includes("mushroom") ||
+          inputVal.name.toLowerCase().includes("banana") ||
+          inputVal.name.toLowerCase().includes("food") ||
+          inputVal.name.toLowerCase().includes("peel")
+        ) {
+          result = makeResult("wet", confidence, 5, "Dispose in wet waste bin or compost.", "Organic waste can become compost instead of landfill waste.");
+        } else if (
+          label.includes("battery") || label.includes("medicine") || label.includes("pill") ||
+          label.includes("syringe") || inputVal.name.toLowerCase().includes("battery") ||
+          inputVal.name.toLowerCase().includes("medicine")
+        ) {
+          result = makeResult("hazardous", confidence, 20, "Dispose at a hazardous waste collection point.", "Hazardous waste should not be mixed with regular waste.");
+        } else {
+          result = makeResult("dry", confidence, 10, `TensorFlow detected: ${best.className}. Dispose in dry waste bin if clean.`, "TensorFlow MobileNet is running directly in the browser.");
+        }
+
+        setAiResult(result);
+        const newPts = points + result.points;
+        setPoints(newPts);
+        if (fb && user) savePoints(newPts);
+        showToast(`TensorFlow classified as ${result.category}`);
+        setAiLoading(false);
+        return;
+      }
+
+      const item = inputVal.toLowerCase();
+      setAiInput(inputVal);
+
+      let result = makeResult("dry", 90, 10, "Dispose in dry waste bin.", "Recycling helps reduce landfill waste.");
+
+      if (item.includes("food")||item.includes("vegetable")||item.includes("fruit")||item.includes("leaves")||
+          item.includes("banana")||item.includes("peel")||item.includes("apple")||item.includes("egg")||
+          item.includes("tea")||item.includes("coffee")||item.includes("rice")||item.includes("bread")||item.includes("oil")) {
+        result = makeResult("wet", 96, 5, "Dispose in wet waste bin or compost.", "Fruit peels and food scraps are compostable organic waste.");
+      }
+
+      if (item.includes("battery")||item.includes("medicine")||item.includes("bulb")||
+          item.includes("chemical")||item.includes("paint")||item.includes("sanitizer")) {
+        result = makeResult("hazardous", 98, 20, "Dispose at a hazardous waste collection center.", "Hazardous waste can pollute groundwater if dumped improperly.");
+      }
+
+      if (item.includes("laptop")||item.includes("mobile")||item.includes("phone")||
+          item.includes("charger")||item.includes("earphone")||item.includes("keyboard")) {
+        result = makeResult("e-waste", 97, 25, "Send to a certified e-waste recycler.", "E-waste contains recoverable metals and must not go to regular bins.");
+      }
+
+      setAiResult(result);
+      const newPts = points + result.points;
+      setPoints(newPts);
+      if (fb && user) savePoints(newPts);
+      showToast("Waste classified successfully");
+    } catch (error) {
+      console.log("Classifier error:", error);
+      setAiResult(makeResult("dry", 70, 10, "TensorFlow could not classify this image clearly. Dispose in dry waste bin if clean.", "Check internet connection because TensorFlow MobileNet loads from CDN."));
+      showToast("Classifier fallback used", "error");
+    }
+
+    setAiLoading(false);
+  };
+
+  // ── ML City change ──
   const handleMlCityChange = useCallback((bin) => {
     setMlCity(bin);
     setMlPredCity(bin);
@@ -1204,7 +1168,7 @@ const AIClassifier = () => {
     setMlPredResult({ kg, cls, trend:kg>s.meanKg?"↑ Above Avg":"↓ Below Avg" });
     showToast(`Predicted waste: ${kg} kg for ${mlPredCity.name}`);
   };
-  // ── Route optimizer ──
+
   const optimizeRoute = () => {
     setRouteOptimizing(true);
     setTimeout(() => {
@@ -1222,7 +1186,6 @@ const AIClassifier = () => {
     }, 800);
   };
 
-  // ── Chat ──
   const localEcoReply=(text)=>{
     const q=text.toLowerCase();
     if(q.includes("medicine")||q.includes("tablet")||q.includes("syrup")) return "Old medicines should not be thrown into regular bins. Keep them in original packaging and give them to a pharmacy take-back point or hazardous waste collection center.";
@@ -1244,7 +1207,6 @@ const AIClassifier = () => {
     },500);
   };
 
-  // ── Marks / dispatch ──
   const markCollected=async(binId)=>{
     const upd={wet:5,dry:5,status:"normal",updatedAt:Date.now()};
     setBins(prev=>prev.map(b=>b.id===binId?{...b,...upd}:b));
@@ -1259,27 +1221,6 @@ const AIClassifier = () => {
     addAlert("info",`Collection truck sent to ${bin.name}`); showToast(`Truck sent to ${bin.name}`);
   };
   const reportIssue=(binName)=>{ addAlert("warning",`Issue reported at ${binName}`); showToast(`Issue reported at ${binName}`); };
-
-  // ── Styles ──
-  const S = {
-    app:{ minHeight:"100vh",background:"#050a0e",color:"#e8fff5",fontFamily:"'Courier New',monospace",position:"relative",overflowX:"hidden" },
-    grid:{ position:"fixed",inset:0,pointerEvents:"none",zIndex:0,backgroundImage:"linear-gradient(rgba(0,255,136,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,136,0.03) 1px,transparent 1px)",backgroundSize:"40px 40px" },
-    nav:{ position:"sticky",top:0,zIndex:100,background:"rgba(5,10,14,0.95)",borderBottom:"1px solid rgba(0,255,136,0.15)",backdropFilter:"blur(20px)",padding:"0 20px",display:"flex",alignItems:"center",gap:12,overflowX:"auto" },
-    logo:{ fontWeight:900,fontSize:15,letterSpacing:2,color:neon.green,textShadow:`0 0 16px ${neon.green}`,padding:"14px 0",whiteSpace:"nowrap",marginRight:16 },
-    tab:(active)=>({ padding:"14px 14px",fontSize:11,letterSpacing:1.5,fontWeight:active?700:400,color:active?neon.green:"#6b8f80",borderBottom:active?`2px solid ${neon.green}`:"2px solid transparent",background:"none",border:"none",cursor:"pointer",whiteSpace:"nowrap",fontFamily:"'Courier New',monospace",transition:"color 0.2s" }),
-    main:{ position:"relative",zIndex:1,maxWidth:1200,margin:"0 auto",padding:"16px",width:"100%",boxSizing:"border-box" },
-    card:{ background:"rgba(10,22,20,0.85)",border:"1px solid rgba(0,255,136,0.15)",borderRadius:12,backdropFilter:"blur(20px)",overflowX:"hidden" },
-    cardHead:{ padding:"14px 18px",borderBottom:"1px solid rgba(0,255,136,0.1)",display:"flex",alignItems:"center",justifyContent:"space-between" },
-    cardTitle:{ fontSize:11,letterSpacing:2,color:neon.green,textTransform:"uppercase" },
-    cardBody:{ padding:18 },
-    statVal:(color)=>({ fontWeight:900,fontSize:28,color,textShadow:`0 0 16px ${color}88`,fontFamily:"'Courier New',monospace" }),
-    statLabel:{ fontSize:10,color:"#6b8f80",textTransform:"uppercase",letterSpacing:1,marginTop:2 },
-    btn:(color=neon.green,outline=false)=>({ padding:"10px 20px",fontSize:11,letterSpacing:1.5,fontWeight:700,textTransform:"uppercase",background:outline?"transparent":color,color:outline?color:"#050a0e",border:`1px solid ${color}`,borderRadius:6,cursor:"pointer",fontFamily:"'Courier New',monospace",transition:"all 0.2s",boxShadow:outline?"none":`0 0 16px ${color}44` }),
-    input:{ background:"rgba(0,255,136,0.05)",border:"1px solid rgba(0,255,136,0.2)",borderRadius:8,padding:"10px 14px",color:"#e8fff5",fontSize:13,fontFamily:"'Courier New',monospace",outline:"none",width:"100%" },
-    grid2:{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:12 },
-    grid3:{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12 },
-    pulse:{ width:8,height:8,borderRadius:"50%",background:neon.green,boxShadow:`0 0 8px ${neon.green}`,animation:"pulse 1.5s infinite" },
-  };
 
   // ── Firebase Status Panel ──
   const FBPanel = () => (
@@ -1300,90 +1241,46 @@ const AIClassifier = () => {
     </div>
   );
 
-  // ── LANDING ──
   const AlertTicker = () => {
-  const systemAlerts = [
-    { type:"info", msg:"Firebase sync active" },
-    { type:"info", msg:"AI classifier ready" },
-    { type:"warning", msg:"Koramangala wet bin rising" },
-    { type:"info", msg:"Route optimizer ready" },
-    { type:"success", msg:"Eco points saved to cloud" },
-    { type:"warning", msg:"Battery check scheduled" },
-    { type:"info", msg:"Bengaluru smart bin network online" }
-  ];
+    const systemAlerts = [
+      { type:"info", msg:"Firebase sync active" },
+      { type:"info", msg:"AI classifier ready" },
+      { type:"warning", msg:"Koramangala wet bin rising" },
+      { type:"info", msg:"Route optimizer ready" },
+      { type:"success", msg:"Eco points saved to cloud" },
+      { type:"warning", msg:"Battery check scheduled" },
+      { type:"info", msg:"Bengaluru smart bin network online" }
+    ];
 
-  const combinedAlerts = [...alerts, ...systemAlerts];
+    const combinedAlerts = [...alerts, ...systemAlerts];
+    const uniqueAlerts = combinedAlerts.filter((alert, index, arr) =>
+      index === arr.findIndex(a => a.msg === alert.msg)
+    );
+    const displayAlerts = uniqueAlerts.slice(0, 12);
 
-  const uniqueAlerts = combinedAlerts.filter((alert, index, arr) =>
-    index === arr.findIndex(a => a.msg === alert.msg)
-  );
-
-  const displayAlerts = uniqueAlerts.slice(0, 12);
-
-  const renderTrack = (copyId) => (
-    <div
-      key={copyId}
-      style={{
-        display:"flex",
-        alignItems:"center",
-        gap:42,
-        flexShrink:0,
-        minWidth:"100%"
-      }}
-    >
-      {displayAlerts.map((a, i) => {
-        const color =
-          a.type === "critical" ? neon.red :
-          a.type === "warning" ? neon.yellow :
-          a.type === "success" ? neon.green :
-          neon.cyan;
-
-        return (
-          <span
-            key={`${copyId}-${i}`}
-            style={{
-              color,
-              fontSize:11,
-              fontWeight:700,
-              letterSpacing:1,
-              whiteSpace:"nowrap"
-            }}
-          >
-            {a.type.toUpperCase()}: {a.msg}
-          </span>
-        );
-      })}
-    </div>
-  );
-
-  return (
-    <div style={{
-      position:"sticky",
-      top:48,
-      zIndex:99,
-      height:34,
-      overflow:"hidden",
-      background:"rgba(0,255,136,0.06)",
-      borderTop:"1px solid rgba(0,255,136,0.2)",
-      borderBottom:"1px solid rgba(0,255,136,0.2)",
-      display:"flex",
-      alignItems:"center"
-    }}>
-      <div style={{
-        display:"flex",
-        width:"max-content",
-        animation:"alertSlideSmooth 38s linear infinite"
-      }}>
-        {renderTrack("a")}
-        {renderTrack("b")}
+    const renderTrack = (copyId) => (
+      <div key={copyId} style={{ display:"flex",alignItems:"center",gap:42,flexShrink:0,minWidth:"100%" }}>
+        {displayAlerts.map((a, i) => {
+          const color = a.type==="critical"?neon.red:a.type==="warning"?neon.yellow:a.type==="success"?neon.green:neon.cyan;
+          return (
+            <span key={`${copyId}-${i}`} style={{ color,fontSize:11,fontWeight:700,letterSpacing:1,whiteSpace:"nowrap" }}>
+              {a.type.toUpperCase()}: {a.msg}
+            </span>
+          );
+        })}
       </div>
-    </div>
-  );
-};
-      
+    );
 
-  
-   
+    return (
+      <div style={{ position:"sticky",top:48,zIndex:99,height:34,overflow:"hidden",background:"rgba(0,255,136,0.06)",borderTop:"1px solid rgba(0,255,136,0.2)",borderBottom:"1px solid rgba(0,255,136,0.2)",display:"flex",alignItems:"center" }}>
+        <div style={{ display:"flex",width:"max-content",animation:"alertSlideSmooth 38s linear infinite" }}>
+          {renderTrack("a")}
+          {renderTrack("b")}
+        </div>
+      </div>
+    );
+  };
+
   const Landing = () => (
     <div style={{ minHeight:"90vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",textAlign:"center",padding:24 }}>
       <div style={{ border:"1px solid rgba(0,255,136,0.3)",borderRadius:30,padding:"6px 18px",fontSize:10,color:neon.green,letterSpacing:2,marginBottom:32,background:"rgba(0,255,136,0.05)" }}>
@@ -1425,7 +1322,6 @@ const AIClassifier = () => {
     </div>
   );
 
-  // ── DASHBOARD — Full table with search/filter ──
   const Dashboard = () => {
     const filtered = useMemo(() => {
       let res = bins;
@@ -1440,7 +1336,6 @@ const AIClassifier = () => {
     return (
       <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
         <FBPanel />
-        {/* Top stats row */}
         <div style={{ ...S.card,background:"rgba(0,255,136,0.04)",padding:16 }}>
           <div style={{ display:"flex",gap:24,flexWrap:"wrap",justifyContent:"space-between",alignItems:"center" }}>
             {[{label:"CO₂ Saved",val:`${co2Saved} kg`,color:neon.green},{label:"Avg Temp",val:"23.7°C",color:neon.cyan},{label:"Humidity",val:"42%",color:neon.yellow},{label:"Methane",val:"LOW",color:neon.green},{label:"Active Bins",val:`${INIT_BINS.length}`,color:neon.cyan}].map((s,i)=>(
@@ -1452,7 +1347,6 @@ const AIClassifier = () => {
             <div style={{ display:"flex",alignItems:"center",gap:6,fontSize:10,color:neon.green }}><div style={S.pulse}/> LIVE</div>
           </div>
         </div>
-        {/* Donut & chart row */}
         <div style={S.grid2}>
           <div style={S.card}>
             <div style={S.cardHead}><span style={S.cardTitle}>Fill Levels</span></div>
@@ -1467,13 +1361,10 @@ const AIClassifier = () => {
             <div style={S.cardBody}><BarChart data={weeklyData}/></div>
           </div>
         </div>
-        {/* Eco tip */}
         <div style={{ ...S.card,padding:14,background:"rgba(0,229,255,0.04)",borderColor:"rgba(0,229,255,0.2)" }}>
           <div style={{ fontSize:10,color:neon.cyan,letterSpacing:2,marginBottom:6 }}>// ECO TIP</div>
           <div style={{ fontSize:13,color:"#cceedd",lineHeight:1.6 }}>💡 {TIPS[tipIdx]}</div>
         </div>
-
-        {/* ── ACTIVE STREET BINS TABLE ── */}
         <div style={S.card}>
           <div style={S.cardHead}>
             <span style={S.cardTitle}>📡 Active Street Bins Telemetry ({filtered.length})</span>
@@ -1482,7 +1373,6 @@ const AIClassifier = () => {
               <span style={{ fontSize:9,color:neon.green }}>LIVE</span>
             </div>
           </div>
-          {/* Search + filter bar */}
           <div style={{ padding:"12px 18px",display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",borderBottom:"1px solid rgba(0,255,136,0.08)" }}>
             <input
               style={{ ...S.input,maxWidth:260,padding:"8px 12px",fontSize:12 }}
@@ -1504,12 +1394,10 @@ const AIClassifier = () => {
               ))}
             </div>
           </div>
-          {/* Table header */}
           <div style={{ padding:"0 18px" }}>
             <div style={{ display:"grid",gridTemplateColumns:"2.2fr 100px 120px 120px 80px 130px",gap:8,padding:"10px 4px",borderBottom:"1px solid rgba(0,255,136,0.15)",fontSize:9,color:"#6b8f80",letterSpacing:1.5,textTransform:"uppercase" }}>
               <span>Location Node</span><span>Status</span><span>Wet Fill</span><span>Dry Fill</span><span>Temp</span><span>Action</span>
             </div>
-            {/* Table rows */}
             <div style={{ maxHeight:460,overflowY:"auto" }}>
               {filtered.length===0 && (
                 <div style={{ textAlign:"center",color:"#6b8f80",padding:28,fontSize:12 }}>No bins match your search</div>
@@ -1521,34 +1409,28 @@ const AIClassifier = () => {
                     style={{ display:"grid",gridTemplateColumns:"2.2fr 100px 120px 120px 80px 130px",gap:8,padding:"11px 4px",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer",alignItems:"center",transition:"background 0.2s" }}
                     onMouseEnter={e=>e.currentTarget.style.background="rgba(0,255,136,0.04)"}
                     onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                    {/* Name */}
                     <div style={{ fontSize:12,color:"#e8fff5",display:"flex",alignItems:"center",gap:8 }}>
                       <div style={{ width:6,height:6,borderRadius:"50%",background:statusColor,boxShadow:`0 0 6px ${statusColor}`,flexShrink:0 }}/>
                       {bin.name}
                     </div>
-                    {/* Status badge */}
                     <div>
                       <span style={{ fontSize:9,fontWeight:700,letterSpacing:1,padding:"3px 8px",borderRadius:20,background:`${statusColor}22`,border:`1px solid ${statusColor}66`,color:statusColor }}>
                         {bin.status.toUpperCase()}
                       </span>
                     </div>
-                    {/* Wet bar */}
                     <div style={{ display:"flex",alignItems:"center",gap:6 }}>
                       <div style={{ flex:1,height:6,background:"rgba(0,229,255,0.1)",borderRadius:3,overflow:"hidden" }}>
                         <div style={{ width:`${bin.wet}%`,height:"100%",background:bin.wet>85?neon.red:neon.cyan,borderRadius:3,transition:"width 1s" }}/>
                       </div>
                       <span style={{ fontSize:10,color:bin.wet>85?neon.red:neon.cyan,minWidth:32,textAlign:"right" }}>{bin.wet}%</span>
                     </div>
-                    {/* Dry bar */}
                     <div style={{ display:"flex",alignItems:"center",gap:6 }}>
                       <div style={{ flex:1,height:6,background:"rgba(255,214,0,0.1)",borderRadius:3,overflow:"hidden" }}>
                         <div style={{ width:`${bin.dry}%`,height:"100%",background:bin.dry>85?neon.red:neon.yellow,borderRadius:3,transition:"width 1s" }}/>
                       </div>
                       <span style={{ fontSize:10,color:bin.dry>85?neon.red:neon.yellow,minWidth:32,textAlign:"right" }}>{bin.dry}%</span>
                     </div>
-                    {/* Temp */}
                     <span style={{ fontSize:11,color:neon.cyan }}>{bin.temp}°C</span>
-                    {/* Action */}
                     <button onClick={e=>{e.stopPropagation();sendTruck(bin);}}
                       style={{ ...S.btn(neon.cyan,true),padding:"5px 10px",fontSize:9,letterSpacing:0.5 }}>
                       DISPATCH TRUCK
@@ -1563,7 +1445,6 @@ const AIClassifier = () => {
     );
   };
 
-  // ── THROW WASTE ──
   const ThrowWaste = () => {
     const filteredWaste = wasteFilter==="all" ? WASTE_ITEMS : WASTE_ITEMS.filter(item=>item.type===wasteFilter);
     const totalLogPoints = throwLog.reduce((s,item)=>s+item.points,0);
@@ -1626,8 +1507,6 @@ const AIClassifier = () => {
     );
   };
 
-
-  // ── MAP TAB ──
   const MapTab = () => (
     <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
       <div style={S.grid2}>
@@ -1693,7 +1572,6 @@ const AIClassifier = () => {
           </div>
         </div>
       </div>
-      {/* All bins list */}
       <div style={S.card}>
         <div style={S.cardHead}><span style={S.cardTitle}>All Bins</span>
           <span style={{ fontSize:9,color:syncStatus.rtdb==="live"?neon.green:"#6b8f80" }}>{syncStatus.rtdb==="live"?"● Realtime DB":"○ Local data"}</span>
@@ -1716,7 +1594,6 @@ const AIClassifier = () => {
     </div>
   );
 
-  // ── ML PREDICTOR — DYNAMIC PER CITY ──
   const MLPredictor = () => {
     const histToShow = mlHistData.slice(0,41);
     const trainN = Math.floor(histToShow.length * mlSplit / 100);
@@ -1725,7 +1602,6 @@ const AIClassifier = () => {
     return (
       <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
         <div style={S.grid2}>
-          {/* Left: Compute & Model Training */}
           <div style={S.card}>
             <div style={S.cardHead}>
               <span style={S.cardTitle}>📈 Compute &amp; Model Training Center</span>
@@ -1734,8 +1610,6 @@ const AIClassifier = () => {
               <div style={{ fontSize:11,color:"#6b8f80",marginBottom:14,lineHeight:1.7 }}>
                 Tune estimators dynamically. Regression computes linear weights; classifiers map high-density waste neighbor sets.
               </div>
-
-              {/* City selector */}
               <div style={{ marginBottom:12 }}>
                 <div style={{ fontSize:9,color:"#6b8f80",letterSpacing:1,marginBottom:6 }}>SELECT CITY / LOCATION</div>
                 <select value={mlCity.id} onChange={e=>{ const b=INIT_BINS.find(x=>x.id===e.target.value); if(b) handleMlCityChange(b); }}
@@ -1743,8 +1617,6 @@ const AIClassifier = () => {
                   {INIT_BINS.map(b=><option key={b.id} value={b.id} style={{ background:"#0a1614" }}>{b.name}</option>)}
                 </select>
               </div>
-
-              {/* Estimator */}
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12 }}>
                 <div>
                   <div style={{ fontSize:9,color:"#6b8f80",letterSpacing:1,marginBottom:6 }}>MODEL ESTIMATOR</div>
@@ -1765,8 +1637,6 @@ const AIClassifier = () => {
                   </div>
                 </div>
               </div>
-
-              {/* Feature toggles */}
               <div style={{ marginBottom:14 }}>
                 <div style={{ fontSize:9,color:"#6b8f80",letterSpacing:1,marginBottom:8 }}>SELECT FEATURES</div>
                 <div style={{ display:"flex",flexWrap:"wrap",gap:8 }}>
@@ -1788,8 +1658,6 @@ const AIClassifier = () => {
                   })}
                 </div>
               </div>
-
-              {/* Run model */}
               <button onClick={runMlModel} disabled={mlRunning}
                 style={{ ...S.btn(neon.green),width:"100%",opacity:mlRunning?0.7:1 }}>
                 {mlRunning ? (
@@ -1799,8 +1667,6 @@ const AIClassifier = () => {
                   </span>
                 ) : "✓ Run Estimator Model Compilation"}
               </button>
-
-              {/* Historical dataset */}
               <div style={{ marginTop:18 }}>
                 <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8 }}>
                   <div style={{ fontSize:9,color:"#6b8f80",letterSpacing:1.5 }}>
@@ -1842,8 +1708,6 @@ const AIClassifier = () => {
                   </table>
                 </div>
               </div>
-
-              {/* Predictive Dispatch Summary */}
               <div style={{ marginTop:16,padding:12,background:`${neon.yellow}08`,border:`1px solid ${neon.yellow}33`,borderRadius:8 }}>
                 <div style={{ fontSize:10,color:neon.yellow,letterSpacing:1.5,marginBottom:8 }}>
                   ⚡ PREDICTIVE DISPATCH SUMMARY — {mlCity.name.toUpperCase()}
@@ -1864,9 +1728,7 @@ const AIClassifier = () => {
             </div>
           </div>
 
-          {/* Right: Interactive Prediction + R Summary */}
           <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
-            {/* Prediction platform */}
             <div style={S.card}>
               <div style={S.cardHead}><span style={S.cardTitle}>🔮 Interactive Prediction Platform</span></div>
               <div style={S.cardBody}>
@@ -1921,7 +1783,6 @@ const AIClassifier = () => {
               </div>
             </div>
 
-            {/* R Summary Terminal */}
             <div style={S.card}>
               <div style={S.cardHead}>
                 <span style={S.cardTitle}>≡ R Summary Terminal</span>
@@ -1960,7 +1821,6 @@ const AIClassifier = () => {
     );
   };
 
-  // ── CHATBOT ──
   const Chatbot = () => {
     const chatEndRef = useRef(null);
     useEffect(()=>{ if(chatHistory.length>0||chatLoading) chatEndRef.current?.scrollIntoView({ behavior:"auto",block:"nearest" }); },[chatHistory,chatLoading]);
@@ -2012,7 +1872,6 @@ const AIClassifier = () => {
     );
   };
 
-  // ── ALERTS ──
   const Alerts = () => {
     const visibleAlerts = alertFilter==="all" ? alerts : alerts.filter(a=>a.type===alertFilter);
     const counts = { critical:alerts.filter(a=>a.type==="critical").length, warning:alerts.filter(a=>a.type==="warning").length, info:alerts.filter(a=>a.type==="info").length };
@@ -2067,7 +1926,6 @@ const AIClassifier = () => {
     );
   };
 
-  // ── REWARDS / LEADERBOARD ──
   const REWARDS = [
     { id:1,title:"Plant a Tree",cost:500,icon:"🌱" },
     { id:2,title:"Eco Coupon",cost:800,icon:"🎟️" },
@@ -2105,7 +1963,7 @@ const AIClassifier = () => {
               <div style={{ fontSize:40,marginBottom:8 }}>🌿</div>
               <div style={{ ...S.statVal(neon.green),fontSize:40 }}>{points}</div>
               <div style={S.statLabel}>Eco Points {user?"(synced ☁️)":"(local)"}</div>
-              <div style={{ fontSize:11,color:neon.yellow,marginTop:6 }}>Level {Math.floor(points/500)+1} — {points<500?"Eco Starter":points<1000?"Recycler":points<1500?"Eco Champion":points<2000?"Green Hero":"Zero Waste Master"}</div>
+              <div style={{ fontSize:11,color:neon.yellow,marginTop:6 }}>{points<500?"Eco Starter":points<1000?"Recycler":points<1500?"Eco Champion":points<2000?"Green Hero":"Zero Waste Master"}</div>
             </div>
             <div style={{ background:"rgba(255,255,255,0.05)",borderRadius:100,height:8,margin:"0 20px",overflow:"hidden" }}>
               <div style={{ height:"100%",borderRadius:100,background:`linear-gradient(90deg,${neon.green},${neon.cyan})`,width:`${levelPct}%`,transition:"width 0.8s ease",boxShadow:`0 0 10px ${neon.green}` }}/>
@@ -2200,7 +2058,20 @@ const AIClassifier = () => {
         {activeTab==="landing"    && <Landing/>}
         {activeTab==="dashboard"  && <Dashboard/>}
         {activeTab==="throw"      && <ThrowWaste/>}
-        {activeTab==="classify"   && <AIClassifier/>}
+        {activeTab==="classify"   && (
+          <AIClassifier
+            S={S}
+            neon={neon}
+            aiLoading={aiLoading}
+            aiResult={aiResult}
+            aiInput={aiInput}
+            setAiInput={setAiInput}
+            setAiResult={setAiResult}
+            classifyWaste={classifyWaste}
+            throwWaste={throwWaste}
+            showToast={showToast}
+          />
+        )}
         {activeTab==="ml"         && <MLPredictor/>}
         {activeTab==="r_dashboard"&& (
           <div style={S.card}>
@@ -2210,7 +2081,7 @@ const AIClassifier = () => {
             </div>
             <div style={{ ...S.cardBody,padding:0,overflow:"hidden",borderRadius:"0 0 12px 12px" }}>
               <iframe
-                src= https://jee2920.shinyapps.io/smartecoplanet/
+                src="https://jee2920.shinyapps.io/smartecoplanet/"
                 width="100%" height="720px"
                 style={{ border:"none",display:"block",background:"#050a0e" }}
                 title="EcoSmart R Dashboard"
